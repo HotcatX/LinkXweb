@@ -22,8 +22,8 @@ export async function generateMetadata(): Promise<Metadata> {
   const socialImage = origin ? `${origin}/og.png` : undefined;
 
   return {
-    title: "LinkX — 连接你的留学生活",
-    description: "LinkX 为纽约与新泽西学生连接拼车、二手和转租，让城市里的留学生活彼此相连。",
+    title: "LinkX — Connected Student Life / 连接你的留学生活",
+    description: "LinkX connects rides, secondhand finds, and sublets for students across New York and New Jersey. 拼车、二手、转租，一个入口连接留学生活。",
     icons: {
       icon: "/favicon.png",
       shortcut: "/favicon.png",
