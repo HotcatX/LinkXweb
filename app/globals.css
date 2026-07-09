@@ -187,6 +187,35 @@ main {
   place-items: center;
 }
 
+.arrow-up-right {
+  position: relative;
+  font-size: 0;
+}
+
+.arrow-up-right::before {
+  content: "";
+  position: absolute;
+  top: 27%;
+  right: 27%;
+  width: 28%;
+  height: 28%;
+  border-top: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+}
+
+.arrow-up-right::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 28%;
+  width: 44%;
+  height: 2px;
+  border-radius: 999px;
+  background: currentColor;
+  transform: translateY(-50%) rotate(-45deg);
+  transform-origin: center;
+}
+
 .menu-toggle {
   display: none;
   border: 0;

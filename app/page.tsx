@@ -365,7 +365,7 @@ export default function Home() {
         </button>
         <a className="nav-cta" href="#experience">
           <span>{t.navCta}</span>
-          <span aria-hidden="true">↗</span>
+          <span className="arrow-up-right" aria-hidden="true" />
         </a>
         <button
           className="menu-toggle"
@@ -479,7 +479,7 @@ export default function Home() {
                   <span>{product.index}</span>
                   <strong>{product.name[locale]}</strong>
                   <small>{product.eyebrow}</small>
-                  <i aria-hidden="true">↗</i>
+                  <i className="arrow-up-right" aria-hidden="true" />
                 </button>
               ))}
             </div>
@@ -533,7 +533,7 @@ export default function Home() {
         <div className="cta-grid" aria-hidden="true" /><div className="cta-orb" aria-hidden="true" />
         <span className="cta-eyebrow">THE NEXT CONNECTION STARTS HERE</span>
         <h2>{t.finalHeadingOne}<br />{t.finalHeadingTwo}<span>{t.finalHeadingAccent}</span></h2>
-        <a href="#top" className="cta-button"><span>{t.finalCta}</span><i aria-hidden="true">↗</i></a>
+        <a href="#top" className="cta-button"><span>{t.finalCta}</span><i className="arrow-up-right" aria-hidden="true" /></a>
       </section>
 
       <footer>
