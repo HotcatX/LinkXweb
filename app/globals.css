@@ -431,6 +431,7 @@ main {
   width: 28px;
   height: 28px;
   object-fit: contain;
+  filter: brightness(0) saturate(100%) invert(51%) sepia(66%) saturate(720%) hue-rotate(128deg) brightness(84%) contrast(92%);
 }
 
 .mini-service span {
