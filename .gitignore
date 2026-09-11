@@ -40,3 +40,8 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+
+# CloudBase static output
+dist-cloudbase/
+.static-ssr/
+*.tsbuildinfo

@@ -1,0 +1,6 @@
+{
+  "extends":"./tsconfig.json",
+  "compilerOptions":{"incremental":false},
+  "include":["app/page.tsx","app/site-content.ts","static/**/*.tsx","vite.cloudbase.config.ts"],
+  "exclude":["node_modules","admin",".next","dist","dist-cloudbase",".static-ssr"]
+}

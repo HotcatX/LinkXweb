@@ -11,7 +11,10 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/rendered-html.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "db:generate": "drizzle-kit generate"
+    "db:generate": "drizzle-kit generate",
+    "dev:cloudbase": "vite --config vite.cloudbase.config.ts",
+    "build:cloudbase": "vite build --config vite.cloudbase.config.ts && vite build --config vite.cloudbase.config.ts --ssr static/render.tsx --outDir .static-ssr && node scripts/prerender.mjs && npm --prefix admin run build && node scripts/bundle-admin.mjs",
+    "test:cloudbase": "npm --prefix admin test && node --test tests/cloudbase.test.mjs tests/pricing.test.mjs"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",
