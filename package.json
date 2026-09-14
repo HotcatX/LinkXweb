@@ -14,7 +14,13 @@
     "db:generate": "drizzle-kit generate",
     "dev:cloudbase": "vite --config vite.cloudbase.config.ts",
     "build:cloudbase": "vite build --config vite.cloudbase.config.ts && vite build --config vite.cloudbase.config.ts --ssr static/render.tsx --outDir .static-ssr && node scripts/prerender.mjs && npm --prefix admin run build && node scripts/bundle-admin.mjs",
-    "test:cloudbase": "npm --prefix admin test && node --test tests/cloudbase.test.mjs tests/pricing.test.mjs"
+    "test:cloudbase": "npm --prefix admin test && node --test tests/cloudbase.test.mjs tests/pricing.test.mjs",
+    "dev:public": "vite --config vite.public.config.ts",
+    "build:public": "vite build --config vite.public.config.ts",
+    "check:public": "tsc -p tsconfig.public.json",
+    "test:public": "node --test tests/public-worker.test.mjs public-site/tests/*.test.mjs",
+    "preview:public": "wrangler dev --config wrangler.public.jsonc",
+    "deploy:public": "npm run build:public && wrangler deploy --config wrangler.public.jsonc"
   },
   "dependencies": {
     "drizzle-orm": "0.45.2",

@@ -45,3 +45,7 @@ next-env.d.ts
 dist-cloudbase/
 .static-ssr/
 *.tsbuildinfo
+
+# Independent Cloudflare public build
+/dist-public/
+.dev.vars*
