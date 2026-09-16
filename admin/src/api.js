@@ -28,6 +28,7 @@ const errors = {
   not_configured: '管理后台尚未完成配置', conflict: '配置已被其他人更新，请重新加载后再保存',
   version_conflict: '配置已被其他人更新，请重新加载后再保存', missing_required_fields: '请补全必填项目',
   invalid_image: '图片格式无效，请选择 JPG、PNG 或 WebP 图片', image_too_large: '图片超过 2 MB，请换一张较小的图片',
+  EXCEED_MAX_PAYLOAD_SIZE: '上传内容超过接口大小限制，请刷新后台后重试或选择较小的图片',
   invalid_file: '图片文件无效，请重新上传', file_not_owned: '这张图片不能用于当前发布，请重新上传',
   batch_conflict: '此批次内容已变化，请重新整理后发布', request_conflict: '这条发布内容已变化，请重新保存草稿',
   not_found: '记录不存在或已被移除', invalid_price: '请输入有效价格', invalid_dates: '请检查日期范围',
@@ -50,17 +51,22 @@ export function createApi({ endpoint, storage, fetcher = fetch, onUnauthorized =
     const controller = new AbortController()
     const timeout = setTimeout(() => controller.abort(), 90000)
     try {
+      const payload = JSON.stringify({ ...data, action })
+      const binaryUpload = action === 'uploadImage'
       const response = await fetcher(endpoint, {
         method: 'POST', credentials: 'omit', cache: 'no-store', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', ...(anonymous ? {} : { Authorization: `Bearer ${session.token}` }) },
-        body: JSON.stringify({ ...data, action })
+        // CloudBase's JSON/text gateway limit is 100 KB. Binary transport keeps
+        // the original image intact and is decoded by the same authenticated API.
+        headers: { 'Content-Type': binaryUpload ? 'application/octet-stream' : 'application/json', ...(anonymous ? {} : { Authorization: `Bearer ${session.token}` }) },
+        body: binaryUpload ? new TextEncoder().encode(payload) : payload
       })
       let result
       try { result = await response.json() } catch (_) { throw new Error('管理接口暂时不可用，请确认网站已完成部署') }
       if (!response.ok || !result || result.ok !== true) {
         if (!anonymous && (response.status === 401 || ['unauthorized', 'session_expired', 'invalid_session', 'session_invalid', 'authentication_required'].includes(result?.error))) { clear(); onUnauthorized() }
-        const error = new Error(errorMessage(result?.error))
-        error.code = result?.error || 'request_failed'
+        const code = result?.error || result?.code || (response.status === 413 ? 'EXCEED_MAX_PAYLOAD_SIZE' : 'request_failed')
+        const error = new Error(errorMessage(code))
+        error.code = code
         throw error
       }
       return result

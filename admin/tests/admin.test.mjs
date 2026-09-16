@@ -57,3 +57,26 @@ test('login token stays in session storage, authenticated requests attach Bearer
  assert.match(calls[1].headers.Authorization,/^Bearer /);assert.equal(calls[1].credentials,'omit')
  assert.equal(api.getSession(),null);assert.equal(expired,1)
 })
+
+test('image uploads use binary transport while preserving original payload and authentication',async()=>{
+ const calls=[]
+ const api=createApi({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async(url,options)=>{
+  calls.push(options)
+  const body=JSON.parse(typeof options.body==='string'?options.body:new TextDecoder().decode(options.body))
+  return {ok:true,status:200,json:async()=>body.action==='login'?{ok:true,token:'a'.repeat(64),expiresAtMs:Date.now()+100000}:{ok:true,fileID:'cloud://uploaded'}}
+ }})
+ await api.login('admin','test-password')
+ const input={purpose:'community',filename:'群二维码.jpg',contentType:'image/jpeg',base64:'A'.repeat(150000)}
+ await api.call('uploadImage',input)
+ assert.equal(calls[0].headers['Content-Type'],'application/json')
+ assert.equal(calls[1].headers['Content-Type'],'application/octet-stream')
+ assert.ok(calls[1].body instanceof Uint8Array)
+ assert.deepEqual(JSON.parse(new TextDecoder().decode(calls[1].body)),{...input,action:'uploadImage'})
+ assert.match(calls[1].headers.Authorization,/^Bearer /)
+ assert.equal(calls[1].credentials,'omit')
+})
+
+test('gateway payload failures identify upload size rather than website authorization',async()=>{
+ const api=createApi({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async()=>({ok:false,status:413,json:async()=>({code:'EXCEED_MAX_PAYLOAD_SIZE'})})})
+ await assert.rejects(api.call('uploadImage',{}, {anonymous:true}),error=>error.code==='EXCEED_MAX_PAYLOAD_SIZE'&&/大小限制/.test(error.message))
+})
