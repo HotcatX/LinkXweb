@@ -1986,3 +1986,86 @@ html[lang="en"] .driver-copy h2 {
     animation: none !important;
   }
 }
+
+/* Rental carousel and details — scoped so existing page styles stay intact. */
+.rental-section { margin-top: 44px; padding-top: 36px; border-top: 1px solid var(--line); min-width: 0; }
+.rental-heading-row { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+.rental-heading-row h3 { font-size: 1.75rem; letter-spacing: -.035em; }
+.rental-intro { color: var(--muted); margin-top: 10px; font-size: .9375rem; }
+.rental-controls { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.rental-arrow { width: 44px; height: 44px; border: 1px solid var(--line); border-radius: 50%; background: var(--raised); display: inline-flex; align-items: center; justify-content: center; padding: 0; flex-shrink: 0; }
+.rental-arrow:hover { background: var(--accent-soft); border-color: var(--accent); }
+.rental-previous > svg { transform: rotate(180deg); }
+.rental-play { min-height: 44px; padding: 8px 12px; font-size: .8125rem; color: var(--accent); background: transparent; border-radius: 8px; }
+.rental-play:hover { background: var(--accent-soft); }
+.rental-track { display: flex; gap: 22px; overflow-x: auto; padding: 5px 0 16px; scroll-snap-type: x mandatory; scrollbar-width: thin; scrollbar-color: var(--line) transparent; overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
+.rental-track:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 16px; }
+.rental-card { flex: 0 0 calc((100% - 44px) / 3); min-width: 0; padding: 0; border-radius: 16px; border: 1px solid var(--line); background: var(--raised); overflow: hidden; text-align: left; scroll-snap-align: start; box-shadow: var(--shadow); transition: border-color .2s, box-shadow .2s; }
+.rental-card:hover { border-color: var(--accent); box-shadow: 0 8px 24px #124d4c16; }
+.rental-card:focus-visible { outline-offset: -4px; }
+.rental-card-photo { display: block; position: relative; aspect-ratio: 16 / 10; background: var(--accent-soft); overflow: hidden; }
+.rental-card-photo > img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform .35s ease; }
+.rental-card:hover .rental-card-photo > img { transform: scale(1.035); }
+.rental-photo-empty { width: 100%; height: 100%; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: var(--muted); font-size: .8125rem; background: var(--surface); }
+.rental-location { position: absolute; bottom: 12px; left: 12px; max-width: calc(100% - 24px); display: flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 7px; background: var(--raised); color: var(--ink); font-size: .75rem; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.rental-card-body { display: block; padding: 20px; }
+.rental-card-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.7em; font-size: 1.125rem; font-weight: 700; line-height: 1.35; overflow-wrap: anywhere; }
+.rental-card-summary { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 3.3em; margin-top: 10px; color: var(--muted); font-size: .8125rem; overflow-wrap: anywhere; }
+.rental-card-bottom { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px; border-top: 1px solid var(--line); margin-top: 20px; padding-top: 16px; }
+.rental-card-bottom > strong { color: var(--accent); font-size: 1.0625rem; overflow-wrap: anywhere; }
+.rental-card-bottom > span { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: .75rem; }
+.rental-footnote { margin-top: 6px; color: var(--muted); font-size: .75rem; }
+.rental-state { min-height: 170px; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; text-align: center; padding: 28px; border: 1px dashed var(--line); border-radius: 16px; background: var(--raised); color: var(--muted); }
+.rental-dialog { width: min(780px, calc(100% - 32px)); max-width: none; max-height: calc(100dvh - 40px); padding: 0; border: 1px solid var(--line); border-radius: 20px; background: var(--raised); color: var(--ink); box-shadow: 0 24px 80px #0004; overflow: auto; overscroll-behavior: contain; }
+.rental-dialog::backdrop { background: #071e27b8; backdrop-filter: blur(4px); }
+.rental-dialog-inner { width: 100%; }
+.rental-dialog-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; padding: 12px 20px; background: var(--raised); border-bottom: 1px solid var(--line); }
+.rental-dialog-top > span { font-size: .75rem; letter-spacing: 1.5px; color: var(--muted); }
+.rental-gallery { position: relative; width: 100%; aspect-ratio: 16 / 10; max-height: 440px; background: var(--surface); }
+.rental-gallery > img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.rental-gallery-arrow { position: absolute; top: 50%; transform: translateY(-50%); border: 1px solid var(--line); border-radius: 50%; width: 44px; height: 44px; display: grid; place-items: center; background: var(--raised); box-shadow: 0 2px 10px #0002; }
+.rental-gallery-prev { left: 14px; }
+.rental-gallery-next { right: 14px; }
+.rental-photo-count { position: absolute; bottom: 12px; right: 14px; background: #102f36d9; color: white; border-radius: 20px; padding: 4px 12px; font-size: .8125rem; }
+.rental-thumbnails { display: flex; gap: 10px; overflow-x: auto; padding: 14px 22px 4px; }
+.rental-thumbnails button { flex: 0 0 76px; height: 58px; padding: 2px; overflow: hidden; border-radius: 8px; border: 2px solid transparent; background: var(--surface); }
+.rental-thumbnails button.is-selected { border-color: var(--accent); }
+.rental-thumbnails img { display: block; width: 100%; height: 100%; border-radius: 4px; object-fit: cover; }
+.rental-thumbnails .rental-photo-empty > span { display: none; }
+.rental-thumbnails .rental-photo-empty > svg { height: 24px; }
+.rental-dialog-content { padding: 24px 30px 34px; overflow-wrap: anywhere; }
+.rental-dialog-content h2 { font-size: 1.75rem; }
+.rental-detail-price { color: var(--accent); font-size: 1.375rem; font-weight: 700; margin-top: 12px; }
+.rental-facts { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 20px 0; margin: 20px 0; border-block: 1px solid var(--line); }
+.rental-facts dt { font-size: .75rem; color: var(--muted); }
+.rental-facts dd { font-size: .9375rem; margin: 5px 0 0; }
+.rental-tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0; }
+.rental-tags > span { padding: 4px 10px; border-radius: 6px; background: var(--accent-soft); color: var(--accent); font-size: .8125rem; }
+.rental-dialog-content > h3 { margin-top: 24px; font-size: 1.125rem; }
+.rental-description { white-space: pre-wrap; margin-top: 12px; line-height: 1.9; font-size: .9375rem; color: var(--muted); }
+.rental-detail-notice { margin-top: 20px; padding: 12px 14px; border-radius: 8px; background: var(--surface); color: var(--muted); font-size: .8125rem; }
+@media (max-width: 900px) {
+  .rental-card { flex-basis: calc((100% - 22px) / 2); }
+  .rental-heading-row { flex-wrap: wrap; gap: 16px; }
+}
+@media (max-width: 620px) {
+  .rental-section { margin-top: 30px; padding-top: 28px; }
+  .rental-heading-row h3 { font-size: 1.5rem; }
+  .rental-intro { font-size: .875rem; }
+  .rental-controls { width: 100%; justify-content: flex-end; }
+  .rental-play { margin-right: auto; }
+  .rental-track { gap: 15px; }
+  .rental-card { flex-basis: 86%; }
+  .rental-card-body { padding: 18px; }
+  .rental-dialog { width: calc(100% - 20px); max-height: calc(100dvh - 24px); border-radius: 14px; }
+  .rental-dialog-content { padding: 20px 20px 28px; }
+  .rental-dialog-content h2 { font-size: 1.375rem; }
+  .rental-facts { grid-template-columns: 1fr; }
+  .rental-dialog-top { padding: 10px 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rental-track { scroll-behavior: auto; }
+  .rental-card:hover .rental-card-photo > img { transform: none; }
+}
+
+.rental-partial { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; color: var(--muted); font-size: .8125rem; margin-top: 12px; }

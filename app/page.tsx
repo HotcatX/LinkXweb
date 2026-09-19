@@ -557,6 +557,7 @@ export default function Home() {
                 </button>
               ))}
             </div>
+            <RentalCarousel locale={locale} />
           </div>
         </section>
         <section
@@ -808,4 +809,292 @@ function MiniProgramDialog({
       </div>
     </dialog>
   );
+}
+
+// Public HTTP read endpoint configured in public/rental-config.json.
+// This JSON contains an endpoint URL only, never Tencent credentials.
+let rentalEndpoint: string | null = null;
+async function resolveRentalEndpoint(signal: AbortSignal): Promise<string> {
+  if (rentalEndpoint) return rentalEndpoint;
+  const response = await fetch("/rental-config.json", { signal, cache: "no-store", credentials: "omit" });
+  if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error("not_configured");
+  const config = await response.json();
+  if (typeof config.apiUrl !== "string" || !config.apiUrl.trim()) throw new Error("not_configured");
+  const url = new URL(config.apiUrl.trim(), window.location.origin);
+  if ((url.protocol !== "https:" && url.origin !== window.location.origin) || url.username || url.password || url.search || url.hash) throw new Error("not_configured");
+  rentalEndpoint = url.href;
+  return rentalEndpoint;
+}
+const RENTAL_AUTOPLAY_MS = 4000;
+const RENTAL_COPY = {
+  zh: {
+    title: "寻找你的下一处住所", intro: "浏览房源，点击卡片查看图片和详细介绍。",
+    label: "租房推荐", previous: "上一组房源", next: "下一组房源",
+    pause: "暂停轮播", play: "自动轮播", loading: "正在加载房源…",
+    empty: "暂时没有可展示的房源", error: "房源暂时无法加载，请稍后重试。",
+    config: "房源服务尚未配置。", loadingMore: "正在继续加载房源…", partial: "部分房源未加载完成，请重试。",
+    retry: "重新加载", image: "房源图片", noImage: "暂无图片", details: "查看详情",
+    close: "关闭房源详情", description: "房源介绍", noDescription: "发布者暂未填写详细描述。",
+    price: "价格待确认", area: "所在区域", dates: "租期 / 入住时间", availability: "房源状态",
+    prevImage: "上一张图片", nextImage: "下一张图片", loadingDetail: "正在加载完整介绍…",
+    detailError: "完整详情暂时无法加载，以下为列表中的预览信息。",
+    removed: "此房源已下架或不再可用。", count: "套房源", reduced: "已按系统设置关闭自动轮播",
+  },
+  en: {
+    title: "Find your next place.", intro: "A place to settle in. Tap a home for photos and the full story.",
+    label: "RENTALS", previous: "Previous homes", next: "Next homes",
+    pause: "Pause slideshow", play: "Auto-play", loading: "Loading homes…",
+    empty: "No homes to show just yet", error: "Homes could not be loaded. Please try again later.",
+    config: "The rental service is not configured yet.", loadingMore: "Loading more homes…", partial: "Some homes could not be loaded. Please try again.",
+    retry: "Try again", image: "Property photo", noImage: "No photo available", details: "View details",
+    close: "Close property details", description: "About this home", noDescription: "No detailed description has been added yet.",
+    price: "Price on request", area: "Location", dates: "Lease / move-in dates", availability: "Availability",
+    prevImage: "Previous photo", nextImage: "Next photo", loadingDetail: "Loading the full description…",
+    detailError: "Full details could not be loaded. The listing preview is shown below.",
+    removed: "This home is no longer available.", count: "homes", reduced: "Auto-play is off to respect your motion settings",
+  },
+} as const;
+type Rental = {
+  id: string; title: string; description: string; priceText: string;
+  regionText: string; timeText: string; availabilityText: string;
+  images: string[]; tags: string[];
+};
+function rentalImageURL(value: unknown): string {
+  if (typeof value !== "string" || value.length > 4096) return "";
+  // Cloud storage cloud:// IDs must be resolved into HTTPS URLs by the backend.
+  if (/^\/(?!\/)/.test(value) && !/[\\\s]/.test(value)) return value;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && !url.username && !url.password ? url.href : "";
+  } catch { return ""; }
+}
+function readRental(value: unknown): Rental | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (row.kind !== "sublet" || typeof row.id !== "string" || !/^[a-z\d_-]{1,128}$/i.test(row.id)) return null;
+  const str = (key: string, max: number) => typeof row[key] === "string" ? (row[key] as string).slice(0, max).trim() : "";
+  const title = str("title", 160);
+  if (!title) return null;
+  return {
+    id: row.id, title, description: str("description", 12000), priceText: str("priceText", 100),
+    regionText: str("regionText", 200), timeText: str("timeText", 160), availabilityText: str("availabilityText", 100),
+    images: (Array.isArray(row.images) ? row.images : []).map(rentalImageURL).filter(Boolean).slice(0, 12),
+    tags: (Array.isArray(row.tags) ? row.tags : []).filter((tag): tag is string => typeof tag === "string").map(tag => tag.slice(0, 60)).filter(Boolean).slice(0, 8),
+  };
+}
+async function fetchRentals(params: Record<string, string>, signal: AbortSignal) {
+  const request = new AbortController();
+  const abort = () => request.abort();
+  signal.addEventListener("abort", abort, { once: true });
+  if (signal.aborted) request.abort();
+  const timeout = window.setTimeout(abort, 20000);
+  try {
+    const url = new URL(await resolveRentalEndpoint(request.signal));
+    Object.entries(params).forEach(([key, value]) => url.searchParams.set(key, value));
+    const response = await fetch(url, { signal: request.signal, credentials: "omit", headers: { Accept: "application/json" }, cache: "no-store" });
+    if (response.status === 404 && params.operation === "marketDetail") throw new Error("not_found");
+    if (!response.ok || !response.headers.get("content-type")?.includes("application/json")) throw new Error("unavailable");
+    const data = await response.json();
+    if (!data || data.ok !== true) throw new Error(data?.error === "not_found" ? "not_found" : "unavailable");
+    return data as { items?: unknown[]; item?: unknown; hasMore?: boolean; nextCursor?: string | null };
+  } finally {
+    clearTimeout(timeout);
+    signal.removeEventListener("abort", abort);
+  }
+}
+function RentalPhoto({ src, alt, locale, eager = false }: { src?: string; alt: string; locale: Locale; eager?: boolean }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return src && !failed ? (
+    // The endpoint provides already-resolved public photo URLs.
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={src} alt={alt} loading={eager ? "eager" : "lazy"} decoding="async" referrerPolicy="no-referrer" onError={() => setFailed(true)} />
+  ) : <span className="rental-photo-empty"><Icon name="house" size={38} /><span>{RENTAL_COPY[locale].noImage}</span></span>;
+}
+function RentalCarousel({ locale }: { locale: Locale }) {
+  const t = RENTAL_COPY[locale];
+  const section = useRef<HTMLElement>(null);
+  const track = useRef<HTMLDivElement>(null);
+  const interactionUntil = useRef(0);
+  const [items, setItems] = useState<Rental[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [reload, setReload] = useState(0);
+  const [selected, setSelected] = useState<Rental | null>(null);
+  const [paused, setPaused] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(true);
+  const [visible, setVisible] = useState(true);
+  const [inView, setInView] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const motion = () => setReducedMotion(media.matches);
+    const visibility = () => setVisible(!document.hidden);
+    motion(); visibility();
+    media.addEventListener("change", motion);
+    document.addEventListener("visibilitychange", visibility);
+    const observer = new IntersectionObserver(([entry]) => setInView(entry.isIntersecting));
+    if (section.current) observer.observe(section.current);
+    return () => { media.removeEventListener("change", motion); document.removeEventListener("visibilitychange", visibility); observer.disconnect(); };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    setLoading(true); setLoadingMore(false); setError(""); setItems([]);
+    async function loadAll() {
+      const collected = new Map<string, Rental>();
+      let cursor = "";
+      try {
+        while (active) {
+          const params: Record<string, string> = { operation: "marketList", kind: "sublet", limit: "20" };
+          if (cursor) params.cursor = cursor;
+          const data = await fetchRentals(params, controller.signal);
+          if (!active) return;
+          if (!Array.isArray(data.items) || data.items.length > 20 || typeof data.hasMore !== "boolean") throw new Error("invalid_response");
+          const rows = data.items.map(readRental);
+          if (rows.some(row => row === null)) throw new Error("invalid_response");
+          rows.forEach(row => { if (row) collected.set(row.id, row); });
+          setItems([...collected.values()]);
+          if (collected.size || !data.hasMore) setLoading(false);
+          setLoadingMore(data.hasMore);
+          if (!data.hasMore) break;
+          if (typeof data.nextCursor !== "string" || !/^[a-z\d_-]{1,128}$/i.test(data.nextCursor) || data.nextCursor <= cursor) throw new Error("invalid_cursor");
+          cursor = data.nextCursor;
+        }
+      } catch (reason) {
+        if (active) setError(reason instanceof Error ? reason.message : "unavailable");
+      } finally {
+        if (active) { setLoading(false); setLoadingMore(false); }
+      }
+    }
+    void loadAll();
+    return () => { active = false; controller.abort(); };
+  }, [reload]);
+  useEffect(() => {
+    const element = track.current;
+    if (!element) return;
+    const measure = () => setOverflows(element.scrollWidth > element.clientWidth + 2);
+    const observer = new ResizeObserver(measure);
+    observer.observe(element); measure();
+    return () => observer.disconnect();
+  }, [items, loading]);
+  function move(direction: number) {
+    const element = track.current;
+    if (!element) return;
+    const max = element.scrollWidth - element.clientWidth;
+    if (max <= 2) return;
+    const current = element.scrollLeft;
+    const positions = Array.from(element.children).map(child => Math.min(max, current + child.getBoundingClientRect().left - element.getBoundingClientRect().left));
+    const target = direction > 0
+      ? current >= max - 4 ? 0 : positions.find(position => position > current + 4) ?? max
+      : current <= 4 ? max : positions.reverse().find(position => position < current - 4) ?? 0;
+    element.scrollTo({ left: Math.max(0, target), behavior: reducedMotion ? "instant" : "smooth" });
+  }
+  useEffect(() => {
+    if (paused || hovered || focused || selected || reducedMotion || !visible || !inView || !overflows) return;
+    const timer = window.setInterval(() => { if (Date.now() >= interactionUntil.current) move(1); }, RENTAL_AUTOPLAY_MS);
+    return () => clearInterval(timer);
+    // move reads the live track geometry; its only state dependency is reducedMotion.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paused, hovered, focused, selected, reducedMotion, visible, inView, overflows]);
+  return (
+    <section ref={section} className="rental-section" aria-labelledby="rental-heading"
+      onPointerEnter={event => { if (event.pointerType === "mouse") setHovered(true); }} onPointerLeave={() => setHovered(false)}
+      onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false); }}>
+      <div className="rental-heading-row">
+        <div><p className="section-kicker">{t.label}</p><h3 id="rental-heading">{t.title}</h3><p className="rental-intro">{t.intro}</p></div>
+        {!loading && overflows && <div className="rental-controls">
+          {!reducedMotion && <button type="button" className="rental-play" onClick={() => { if (paused) setFocused(false); setPaused(value => !value); }} aria-pressed={paused}>{paused ? t.play : t.pause}</button>}
+          <button type="button" className="rental-arrow rental-previous" aria-label={t.previous} aria-controls="rental-track" onClick={() => move(-1)}><Icon name="arrow" size={20} /></button>
+          <button type="button" className="rental-arrow" aria-label={t.next} aria-controls="rental-track" onClick={() => move(1)}><Icon name="arrow" size={20} /></button>
+        </div>}
+      </div>
+      {loading ? <div className="rental-state" role="status">{t.loading}</div>
+        : error && items.length === 0 ? <div className="rental-state" role="status"><Icon name="house" size={32} /><p>{error === "not_configured" ? t.config : t.error}</p><button type="button" className="button secondary" onClick={() => setReload(value => value + 1)}>{t.retry}</button></div>
+        : items.length === 0 ? <div className="rental-state" role="status"><Icon name="house" size={32} /><p>{t.empty}</p></div>
+        : <>
+          <div ref={track} id="rental-track" className="rental-track" role="region" aria-label={t.title} tabIndex={0}
+            onPointerDown={() => { interactionUntil.current = Date.now() + 8000; }} onWheel={() => { interactionUntil.current = Date.now() + 8000; }}
+            onKeyDown={event => { if (event.key === "ArrowLeft" || event.key === "ArrowRight") { event.preventDefault(); move(event.key === "ArrowLeft" ? -1 : 1); } }}>
+            {items.map(item => <button key={item.id} type="button" className="rental-card" aria-haspopup="dialog" onClick={() => setSelected(item)}>
+              <span className="rental-card-photo"><RentalPhoto src={item.images[0]} alt={item.title} locale={locale} />{item.regionText && <span className="rental-location"><Icon name="pin" size={14} />{item.regionText}</span>}</span>
+              <span className="rental-card-body"><span className="rental-card-title">{item.title}</span><span className="rental-card-summary">{item.description || t.noDescription}</span><span className="rental-card-bottom"><strong>{item.priceText || t.price}</strong><span>{t.details}<Icon name="arrow" size={18} /></span></span></span>
+            </button>)}
+          </div>
+          <p className="rental-footnote" role="status">{items.length} {t.count}{loadingMore ? ` · ${t.loadingMore}` : ""}{reducedMotion ? ` · ${t.reduced}` : ""}</p>
+          {error && <div className="rental-partial" role="status"><span>{t.partial}</span><button type="button" className="text-link" onClick={() => setReload(value => value + 1)}>{t.retry}</button></div>}
+        </>}
+      {selected && <RentalDialog key={selected.id} rental={selected} locale={locale} onClose={() => setSelected(null)} />}
+    </section>
+  );
+}
+function RentalDialog({ rental, locale, onClose }: { rental: Rental; locale: Locale; onClose: () => void }) {
+  const t = RENTAL_COPY[locale];
+  const dialog = useRef<HTMLDialogElement>(null);
+  const [item, setItem] = useState(rental);
+  const [photo, setPhoto] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  const backdropStart = useRef(false);
+  useEffect(() => {
+    const element = dialog.current;
+    const previous = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    element?.showModal(); document.body.style.overflow = "hidden";
+    return () => { element?.close(); document.body.style.overflow = overflow; if (previous?.isConnected) previous.focus({ preventScroll: true }); };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 20000);
+    setLoading(true); setError("");
+    fetchRentals({ operation: "marketDetail", kind: "sublet", id: rental.id }, controller.signal).then(data => {
+      const detail = readRental(data.item);
+      if (!detail || detail.id !== rental.id) throw new Error("invalid_response");
+      if (active) { setItem(detail); setPhoto(0); }
+    }).catch(reason => { if (active) setError(reason instanceof Error ? reason.message : "unavailable"); })
+      .finally(() => { clearTimeout(timeout); if (active) setLoading(false); });
+    return () => { active = false; controller.abort(); clearTimeout(timeout); };
+  }, [rental.id, reload]);
+  const count = item.images.length;
+  const nextPhoto = (direction: number) => { if (count > 1) setPhoto(value => (value + direction + count) % count); };
+  return <dialog ref={dialog} className="rental-dialog" aria-labelledby="rental-dialog-title"
+    onCancel={event => { event.preventDefault(); onClose(); }}
+    onKeyDown={event => {
+      if (event.key !== "Tab") return;
+      const targets = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], [tabindex="0"]'));
+      const first = targets[0], last = targets[targets.length - 1];
+      if (!first || !last) return;
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    }}
+    onPointerDown={event => { backdropStart.current = event.target === event.currentTarget; }}
+    onClick={event => { if (event.target === event.currentTarget && backdropStart.current) onClose(); }}>
+    <div className="rental-dialog-inner">
+      <div className="rental-dialog-top"><span>LINKX / {t.label}</span><button type="button" className="rental-arrow" autoFocus aria-label={t.close} onClick={onClose}><Icon name="close" size={20} /></button></div>
+      {error === "not_found" ? <div className="rental-state"><h2 id="rental-dialog-title">{t.removed}</h2></div> : <>
+        <div className="rental-gallery">
+          <RentalPhoto src={item.images[photo]} alt={`${item.title} — ${t.image} ${photo + 1}`} locale={locale} eager />
+          {count > 1 && <><button type="button" className="rental-gallery-arrow rental-gallery-prev rental-previous" aria-label={t.prevImage} onClick={() => nextPhoto(-1)}><Icon name="arrow" /></button><button type="button" className="rental-gallery-arrow rental-gallery-next" aria-label={t.nextImage} onClick={() => nextPhoto(1)}><Icon name="arrow" /></button><span className="rental-photo-count" aria-live="polite">{photo + 1} / {count}</span></>}
+        </div>
+        {count > 1 && <div className="rental-thumbnails">{item.images.map((src, index) => <button key={`${src}-${index}`} type="button" className={photo === index ? "is-selected" : ""} aria-label={`${t.image} ${index + 1}`} aria-pressed={photo === index} onClick={() => setPhoto(index)}><RentalPhoto src={src} alt="" locale={locale} /></button>)}</div>}
+        <div className="rental-dialog-content">
+          <h2 id="rental-dialog-title">{item.title}</h2><p className="rental-detail-price">{item.priceText || t.price}</p>
+          {(item.regionText || item.timeText || item.availabilityText) && <dl className="rental-facts">
+            {item.regionText && <div><dt>{t.area}</dt><dd>{item.regionText}</dd></div>}
+            {item.timeText && <div><dt>{t.dates}</dt><dd>{item.timeText}</dd></div>}
+            {item.availabilityText && <div><dt>{t.availability}</dt><dd>{item.availabilityText}</dd></div>}
+          </dl>}
+          {item.tags.length > 0 && <div className="rental-tags">{item.tags.map((tag, index) => <span key={`${tag}-${index}`}>{tag}</span>)}</div>}
+          {loading && <p className="rental-detail-notice" role="status">{t.loadingDetail}</p>}
+          {error && <div className="rental-detail-notice" role="status"><p>{t.detailError}</p><button type="button" className="text-link" onClick={() => setReload(value => value + 1)}>{t.retry}</button></div>}
+          <h3>{t.description}</h3><p className="rental-description">{item.description || t.noDescription}</p>
+        </div>
+      </>}
+    </div>
+  </dialog>;
 }
