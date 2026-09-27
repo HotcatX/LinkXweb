@@ -101,3 +101,22 @@ CloudBase 默认域名用于测试。以后绑定自己的域名后，需同步�
 第二版已上传成功，24 个线上静态文件与本地产物逐一 SHA-256 一致，使用默认测试域名。
 
 用户将 catx.eu.org 迁移到同一腾讯云账号后，DNSPod 分配了新的 brick.dnspod.net / database.dnspod.net；EU.org 已提交并确认 Nameservers 修改。已添加 CloudBase 归属验证 TXT，并补回迁移前 @ / www → 47.122.47.185、TTL 600。用户确认域名未备案，并决定暂时继续使用腾讯云默认测试域名。暂停自定义域名绑定与 Cloudflare Pages 迁移；未创建 Cloudflare 项目、未申请证书、未新增 API allowedOrigins。EU.org 的 Nameservers 修改已提交，DNS 委派仍需传播。
+
+
+## 管理后台服务器适配
+
+`admin/public/admin-config.js` 保持 `mode: 'cloudbase'` 和现有管理接口。完成业务数据迁移、管理员账号导入和站点 Origin 授权后，部署时才显式改成 `mode: 'backend'`，`backendOrigin` 为 `https://collect.linkx.ink`（仅 origin，不带路径）。CSP 已允许该域名。目录读 `/api/v1/locations` 的市场地区树，其余请求读写 `/api/v1/admin/*`。不同模式、地址和账号的会话及待发布草稿隔离；切换后需重新登录。
+
+后台模式包含商品/转租批次发布、已发布内容版本编辑、文字模板、群码公告版本保存、原始图片上传及 5 分钟签名图片链接更新。待发布快照在发请求之前存入本地；失去响应时保留原行 ID、版本、操作编号和请求内容，刷新页面后可继续核对。保存操作无隐式重试，未知结果不能修改请求后直接重发。原图/缩略图只保存文件 UUID；签名 URL 仅在内存中用于展示，提前刷新并在回到页面或加载失败时更新。浏览器本地存储不可用时阻止新写入，避免丢失重试编号。
+
+旧接口转换和传输仅在 `admin/src/compat/`。它不是网络错误时的自动降级路径。新服务器成为唯一写入方后，不能仅改回 CloudBase 模式就向旧库写入；回退必须先确保旧入口也指向同一个写入方。新版本稳定、旧批次和上传引用完成核对后再删除该目录与 CloudBase 配置。
+
+管理测试：`npm --prefix admin test`；后端联调另需 Node.js 24、相邻后端源码和专用本地 PostgreSQL：
+
+```sh
+BACKEND_SOURCE_DIR=/path/to/wx/services/backend \
+BACKEND_TEST_DATABASE_URL=postgresql://localhost/test_database \
+npm --prefix admin test
+```
+
+联调会创建随机测试 schema 并清理，使用合成管理员和内存图片存储，不访问生产 CloudBase、服务器或 COS。未提供上述变量时，联调测试明确标记跳过，不能把它视为实际后端验证。正式部署前仍需核对实际站点 CORS/CSP、管理员登录和数据迁移完成状态。

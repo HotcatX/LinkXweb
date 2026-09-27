@@ -3,17 +3,17 @@ import { errorMessage } from './api.js'
 
 // These errors are raised before a goods record is written. Other failures may
 // have happened after commit; keep their original request identity for recovery.
-const SAFE_TO_EDIT = new Set(['invalid_item', 'invalid_listing_type', 'invalid_price', 'invalid_location', 'invalid_images', 'too_many_images', 'invalid_external_id', 'invalid_pickup_range', 'invalid_available_range', 'missing_required_fields', 'image_not_allowed', 'invalid_file_id', 'invalid_dates'])
+const SAFE_TO_EDIT = new Set(['invalid_item', 'invalid_listing_type', 'invalid_price', 'invalid_location', 'invalid_images', 'too_many_images', 'invalid_external_id', 'invalid_pickup_range', 'invalid_available_range', 'missing_required_fields', 'image_not_allowed', 'invalid_file_id', 'invalid_dates', 'VALIDATION_ERROR', 'INVALID_INPUT', 'FILE_NOT_FOUND', 'FILE_NOT_ALLOWED', 'MARKET_FILE_FORBIDDEN', 'INVALID_DATE_WINDOW', 'FILE_OWNER_MISMATCH', 'FILE_UPLOADER_MISMATCH', 'FILE_READONLY'])
 export function createBatch(rows, batchId) {
   const pending = rows.filter(row => row._status !== 'success')
-  return { batchId, keys: pending.map(row => row._key), items: pending.map(row => structuredClone(draftPayload(row))) }
+  return { batchId, keys: pending.map(row => row._key), items: pending.map(row => ({ clientRequestId: row.clientRequestId, ...(row.externalId ? { externalId: row.externalId } : {}), item: structuredClone(draftPayload(row)) })) }
 }
 export function applyBatchResult(rows, batch, result) {
   return rows.map(row => {
     const index = batch.keys.indexOf(row._key)
     if (index < 0) return row
     const success = (result.results || []).find(item => item.index === index)
-    if (success) return { ...row, _status: 'success', resultId: success.itemId || success.id, error: '' }
+    if (success) return { ...row, _status: 'success', resultId: success.id, error: '' }
     // A later uncertain response must not downgrade an already confirmed item.
     if (row._status === 'success') return row
     const failure = (result.failures || []).find(item => item.index === index)

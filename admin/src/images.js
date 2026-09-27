@@ -26,3 +26,8 @@ export async function compressMarketImage(file, { thumbnail = false } = {}) {
     return blob
   } finally { bitmap.close() }
 }
+
+export async function validateImageDimensions(file) {
+  const bitmap = await createImageBitmap(file)
+  try { if (bitmap.width * bitmap.height > 12000000) throw new Error('图片分辨率需在 1200 万像素以内') } finally { bitmap.close() }
+}

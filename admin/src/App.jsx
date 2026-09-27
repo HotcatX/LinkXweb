@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react'
-import { createApi, resolveEndpoint } from './api.js'
+import { createApi, resolveApiConfig } from './api.js'
 import BulkManager from './BulkManager.jsx'
 import CommunityManager from './CommunityManager.jsx'
+import { createWorkspaceLoader } from './workspace.js'
 
 export function Icon({ name, size = 20 }) {
   const paths = {
@@ -63,25 +64,26 @@ export default function App() {
   const [dark, setDark] = useState(() => document.documentElement.dataset.theme === 'dark')
   function toggleTheme() { const next = !dark; setDark(next); document.documentElement.dataset.theme = next ? 'dark' : 'light'; try { localStorage.setItem('linkx-theme', next ? 'dark' : 'light') } catch (_) {} }
   const [bootstrap, setBootstrap] = useState(null); const [loading, setLoading] = useState(false); const [error, setError] = useState('')
-  const api = useMemo(() => createApi({ endpoint: resolveEndpoint(window.ADMIN_CONFIG?.apiUrl, window.location.origin), storage: window.sessionStorage, onUnauthorized: () => { setSession(null) } }), [])
+  const api = useMemo(() => createApi({ ...resolveApiConfig(window.ADMIN_CONFIG, window.location.origin), storage: window.sessionStorage, operationStorage: window.localStorage, onUnauthorized: () => { setSession(null); setBootstrap(null) } }), [])
   useEffect(() => { setSession(api.getSession()) }, [api])
-  async function load() {
-    setLoading(true); setError('')
-    try { const result = await api.call('bootstrap'); setBootstrap(result) }
-    catch (e) { setError(e.message) } finally { setLoading(false) }
-  }
-  useEffect(() => { if (session) load() }, [session])
-  async function logout() { try { await api.logout() } catch (_) {} setSession(null); setBootstrap(null) }
+  const loader = useMemo(() => createWorkspaceLoader(api, {
+    start: () => { setLoading(true); setError('') }, loaded: setBootstrap,
+    error: error => setError(error.message), finish: () => setLoading(false)
+  }), [api])
+  const load = () => loader.load()
+  useEffect(() => { setBootstrap(null); setLoading(false); if (session) void load(); return () => loader.invalidate() }, [session, loader])
+  async function logout() { loader.invalidate(); setSession(null); setBootstrap(null); setLoading(false); try { await api.logout() } catch (_) {} }
   return <>{!session && <Login api={api} onLogin={setSession} />}<div className="app-shell" hidden={!session}>
     <aside className="sidebar"><a className="brand" href="./" aria-label="极链行管理后台"><div className="brand-mark">极</div><div>极链行<span>管理后台</span></div></a>
       <div className="nav-label">工作台</div><nav aria-label="管理功能"><button type="button" className={tab === 'bulk' ? 'active' : ''} onClick={() => setTab('bulk')}><Icon name="grid" /><span>批量发布</span></button><button type="button" className={tab === 'community' ? 'active' : ''} onClick={() => setTab('community')}><Icon name="qr" /><span>群码与公告</span></button></nav>
-      <div className="sidebar-bottom"><div className="account-avatar">A</div><div className="account-name">{session?.admin?.username || '管理员'}<span>管理员账号</span></div><button type="button" className="icon-button" aria-label="退出登录" title="退出登录" onClick={logout}><Icon name="logout" /></button></div>
+      <div className="sidebar-bottom"><div className="account-avatar">A</div><div className="account-name">{session?.admin?.accountId || session?.admin?.username || '管理员'}<span>管理员账号</span></div><button type="button" className="icon-button" aria-label="退出登录" title="退出登录" onClick={logout}><Icon name="logout" /></button></div>
     </aside>
     <div className="workspace"><header className="topbar"><span>共享生活 <span className="crumb">/</span> {tab === 'bulk' ? '批量发布' : '群码与公告'}</span><button className="theme-switch" onClick={toggleTheme}>{dark ? '浅色模式' : '深色模式'}</button></header>
       <main className="main-content"><Notice message={error} />
         {loading && !bootstrap ? <div className="loading-state" role="status">正在读取管理数据…</div> : !bootstrap ? <div className="panel empty-state"><h2>数据暂未加载</h2><button className="button primary" onClick={load} disabled={loading}>重新加载</button></div> : <>
-          <div hidden={tab !== 'bulk'}><BulkManager api={api} regionTree={bootstrap.regionTree || []} initialTemplates={bootstrap.templates || []} /></div>
-          <div hidden={tab !== 'community'}><CommunityManager api={api} initialConfig={bootstrap.community} /></div>
+          {api.pendingOperations?.().length > 0 && <div className="notice" role="status">上次保存结果尚未确认。<button className="text-button" disabled={loading} onClick={async () => { setLoading(true); try { await api.recoverOperations(); await load() } catch (e) { setError(e.message) } finally { setLoading(false) } }}>核对上次保存结果</button></div>}
+          <div hidden={tab !== 'bulk'}><BulkManager key={api.workspaceKey()} api={api} regionTree={bootstrap.regionTree || []} initialTemplates={bootstrap.templates || []} /></div>
+          <div hidden={tab !== 'community'}><CommunityManager key={`${api.workspaceKey()}:${bootstrap.community.version}`} api={api} initialConfig={bootstrap.community} /></div>
         </>}
       </main>
     </div>

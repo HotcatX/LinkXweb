@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { blankDraft, draftPayload, validateDraft, communityPayload, normalizeEditableCommunity, validateCommunity, datetimeInput } from '../src/model.js'
 import { createBatch, applyBatchResult, uncertainBatch } from '../src/batch.js'
 import { createApi, resolveEndpoint } from '../src/api.js'
+import { createCloudbaseTransport } from '../src/compat/cloudbase-transport.js'
 const goods = () => ({...blankDraft(), _key:'one', clientRequestId:'request-one', title:'Desk', price:'0', sellerName:'Cat', sellerWechat:'cat-test', regionState:'NJ', regionCounty:'Fort Lee', regionArea:'Fort Lee', images:[]})
 test('goods validation accepts free goods, rejects partial coordinates and backwards dates', () => {
  assert.equal(validateDraft(goods()), '')
@@ -11,17 +12,17 @@ test('goods validation accepts free goods, rejects partial coordinates and backw
  assert.match(validateDraft({...goods(), pickupEndDate:'2020-01-01'}), /日期/)
 })
 test('payload preserves real address and does not promote missing thumbnails or internal IDs', () => {
- const value=draftPayload({...goods(), version:4, resultId:'id', detailAddress:'1 Main St', latitude:'40',longitude:'-74',images:[{fileID:'cloud://real',url:'https://temporary.invalid'}]})
+ const value=draftPayload({...goods(), version:4, resultId:'id', detailAddress:'1 Main St', latitude:'40',longitude:'-74',images:[{fileId:'cloud://real',url:'https://temporary.invalid'}]})
  assert.equal(value.location.address,'1 Main St');assert.equal(value.location.latitude,40)
- assert.deepEqual(value.thumbFileIDs,['']); assert.equal(value.version,undefined); assert.equal(value.resultId,undefined)
- assert.equal(value.images,undefined); assert.ok(!JSON.stringify(value).includes('temporary.invalid'))
+ assert.deepEqual(value.images,[{fileId:'cloud://real'}]); assert.equal(value.version,undefined); assert.equal(value.resultId,undefined)
+ assert.equal(value.thumbFileIDs,undefined); assert.ok(!JSON.stringify(value).includes('temporary.invalid'))
 })
 test('retry snapshot stays unchanged after successful goods are edited', () => {
  const rows=[goods(),{...goods(),_key:'two',clientRequestId:'request-two'}]
  const batch=createBatch(rows,'batch-one')
  const state=applyBatchResult(rows,batch,{results:[{index:0,id:'published'}],failures:[{index:1,error:'item_save_failed'}]})
  state[0].title='Updated title'
- assert.equal(batch.items[0].title,'Desk'); assert.equal(state[1]._status,'unconfirmed')
+ assert.equal(batch.items[0].item.title,'Desk'); assert.equal(state[1]._status,'unconfirmed')
  const recovered=applyBatchResult(state,batch,{results:[{index:0,id:'published'},{index:1,id:'second'}]})
  assert.equal(recovered[0].title,'Updated title'); assert.equal(recovered[1]._status,'success')
  assert.equal(uncertainBatch(recovered,batch)[0]._status,'success')
@@ -33,7 +34,7 @@ test('new batch excludes confirmed goods and retains uncertain request IDs', () 
  assert.equal(invalid[0]._status,'failed')
 })
 test('community manual content works while auto display is off and dates preserve their instant', () => {
- const c=normalizeEditableCommunity({group:{enabled:true,imageFileID:'cloud://qr',expiresAt:'2030-09-17T00:00:00+08:00'},announcement:{enabled:false,id:'notice',body:'Hello'}})
+ const c=normalizeEditableCommunity({group:{enabled:true,imageFileId:'cloud://qr',expiresAt:'2030-09-17T00:00:00+08:00'},announcement:{enabled:false,id:'notice',body:'Hello'}})
  assert.equal(validateCommunity(c,Date.parse('2030-09-10T00:00:00Z')),'')
  assert.equal(communityPayload(c).announcement.enabled,false)
  assert.equal(new Date(datetimeInput(c.group.expiresAt)).getTime(),Date.parse(c.group.expiresAt))
@@ -48,7 +49,7 @@ test('API uses HTTPS and prevents embedded credentials',()=>{
 })
 test('login token stays in session storage, authenticated requests attach Bearer, expired response clears it',async()=>{
  const s=storage();const calls=[];let expired=0
- const api=createApi({endpoint:'https://example.com/admin-api',storage:s,onUnauthorized:()=>expired++,fetcher:async(url,options)=>{
+ const api=createCloudbaseTransport({endpoint:'https://example.com/admin-api',storage:s,onUnauthorized:()=>expired++,fetcher:async(url,options)=>{
   calls.push(options);const body=JSON.parse(options.body)
   return {ok:body.action==='login',status:body.action==='login'?200:401,json:async()=>body.action==='login'?{ok:true,token:'a'.repeat(64),expiresAtMs:Date.now()+100000,admin:{username:'admin'}}:{ok:false,error:'session_invalid'}}
  }})
@@ -60,7 +61,7 @@ test('login token stays in session storage, authenticated requests attach Bearer
 
 test('image uploads use binary transport while preserving original payload and authentication',async()=>{
  const calls=[]
- const api=createApi({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async(url,options)=>{
+ const api=createCloudbaseTransport({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async(url,options)=>{
   calls.push(options)
   const body=JSON.parse(typeof options.body==='string'?options.body:new TextDecoder().decode(options.body))
   return {ok:true,status:200,json:async()=>body.action==='login'?{ok:true,token:'a'.repeat(64),expiresAtMs:Date.now()+100000}:{ok:true,fileID:'cloud://uploaded'}}
@@ -77,6 +78,6 @@ test('image uploads use binary transport while preserving original payload and a
 })
 
 test('gateway payload failures identify upload size rather than website authorization',async()=>{
- const api=createApi({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async()=>({ok:false,status:413,json:async()=>({code:'EXCEED_MAX_PAYLOAD_SIZE'})})})
+ const api=createCloudbaseTransport({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async()=>({ok:false,status:413,json:async()=>({code:'EXCEED_MAX_PAYLOAD_SIZE'})})})
  await assert.rejects(api.call('uploadImage',{}, {anonymous:true}),error=>error.code==='EXCEED_MAX_PAYLOAD_SIZE'&&/大小限制/.test(error.message))
 })
