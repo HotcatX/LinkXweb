@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile, access, stat } from "node:fs/promises";
 import { resolve, join } from "node:path";
+import { createHash } from "node:crypto";
 const root = resolve(import.meta.dirname, "../dist-cloudbase");
 const html = await readFile(join(root, "index.html"), "utf8");
 test("public static page is prerendered with real app handoff and no public admin navigation", () => {
@@ -22,7 +23,10 @@ test("all public entry assets and independent admin assets exist at deployable p
   assert.match(admin, /noindex,nofollow/);
   for (const match of admin.matchAll(/(?:src|href)="(\.\/[^"#]+)"/g))
     await access(join(root, "admin", match[1]));
-  const config = await readFile(join(root, "admin/admin-config.js"), "utf8");
+  const configName = admin.match(/src="\.\/(admin-config\.([a-f0-9]{16})\.js)"/);
+  assert.ok(configName, "deployment config has a content-addressed URL");
+  const config = await readFile(join(root, "admin", configName[1]), "utf8");
+  assert.equal(createHash("sha256").update(config).digest("hex").slice(0, 16), configName[2]);
   assert.match(config, /https:\/\/.+\/admin-api/);
   assert.ok((await stat(join(root, "bridge.jpg"))).size > 100000);
 });
