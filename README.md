@@ -28,13 +28,13 @@ npx tsc --noEmit -p tsconfig.cloudbase.json
 
 ## 腾讯云托管
 
-沿用已有个人版云环境 `cloud1-7gmtcu4s3aebce27`，地域 `ap-shanghai`。不新建云函数、不使用原 Sites 工程的 ChatGPT 登录，也不需要常驻服务器。
+静态网站沿用已有云环境 `cloud1-7gmtcu4s3aebce27`，地域 `ap-shanghai`。管理 API 已于 2026-09-30 切换到腾讯云服务器上的业务后端，PostgreSQL 是唯一业务主库；不使用原 Sites 工程的 ChatGPT 登录。
 
 - 静态测试域名：`https://cloud1-7gmtcu4s3aebce27-1383643768.tcloudbaseapp.com/`
 - 后台：同域名 `/admin/`
-- 管理 API：`https://cloud1-7gmtcu4s3aebce27-1383643768.ap-shanghai.app.tcloudbase.com/admin-api`
-- 处理函数：相邻小程序仓库 `../wx/cloudfunctions/marketApi`。HTTP 路由仅转发到该函数；后台操作不接受微信旧六位码或小程序管理令牌。
-- API 地址位于 `admin/public/admin-config.js`。不存密码、腾讯云密钥或访问令牌。
+- 管理 API：`https://collect.linkx.ink/api/v1/admin/*`，由相邻小程序仓库 `../wx/services/backend` 实现；后台操作使用独立管理员账户，不接受微信旧六位码或小程序管理令牌。
+- 原云函数域名下的 `/admin-api/public-api` 与 `/webHouseShare` 仍保留公开只读用途，分别由 `marketApi` 和 `webHouseShare` 转发到同一 PostgreSQL 后端；旧 `/admin-api` 不再承接管理登录或写入。公开 Worker 继续使用原公开地址。
+- 当前配置见 [admin/public/admin-config.js](admin/public/admin-config.js)：`mode: 'backend'`，`backendOrigin: 'https://collect.linkx.ink'`。不存密码、腾讯云密钥或访问令牌。
 
 发布前完成构建与测试。静态上传仅增加 / 更新本站产物，不删除远端未列出的文件，保留 `__auth/`、`adminportal/`、`cloud-admin/` 等现有目录。
 
@@ -42,7 +42,7 @@ npx tsc --noEmit -p tsconfig.cloudbase.json
 tcb hosting deploy ./dist-cloudbase / -e cloud1-7gmtcu4s3aebce27 -r ap-shanghai --json
 ```
 
-CloudBase 默认域名用于测试。以后绑定自己的域名后，需同步更新 `WebAdminSettings/main.allowedOrigins` 中的精确 HTTPS origin，并重建 API 配置（若 API 域名也变更）。不要带 `/admin/` 路径或尾斜杠。
+目前管理站使用 CloudBase 默认托管域名。以后绑定自己的域名后，需同步更新 PostgreSQL `admin_origins` 中的精确 HTTPS origin，并重建 API 配置（若 API 域名也变更）。不要带 `/admin/` 路径或尾斜杠。
 
 ## 参考价格
 
@@ -64,15 +64,15 @@ CloudBase 默认域名用于测试。以后绑定自己的域名后，需同步�
 
 在“群码与公告”上传群二维码原图（JPG/PNG/WebP，2 MB 以内），填写真实到期时间，预览后保存。时间按当前设备时区输入，服务端存带时区的时间。
 
-群码与公告复用小程序 `community_config/main`。自动弹窗当前关闭；手动入口仍可查看公告。可热更正文、图片、开启时间、每台设备展示上限与两次间隔。换公告编号才重置次数；单纯修改图片或文字不重置。上一版保存到 `CommunityConfigHistory`，原图片保留供恢复。
+群码与公告与小程序共用 PostgreSQL `community_configs` 中的 `main` 配置。自动弹窗当前关闭；手动入口仍可查看公告。可热更正文、图片、开启时间、每台设备展示上限与两次间隔。换公告编号才重置次数；单纯修改图片或文字不重置。上一版保存到 `community_revisions`，原图片保留供恢复。
 
 ## 账户与安全
 
-管理员密码的初始交付文件由维护者保存在仓库外，不能上传至静态目录或 Git。账号使用 scrypt 摘要；会话 8 小时，仅在 `sessionStorage` 保存随机令牌，服务器只保存其哈希。禁用账号或递增 `passwordVersion` 可撤销所有现有会话。
+管理员密码的初始交付文件由维护者保存在仓库外，不能上传至静态目录或 Git。账号使用 scrypt 摘要；会话 8 小时，仅在 `sessionStorage` 保存随机令牌，服务器只保存其哈希。禁用账号或递增 `credential_version` 可撤销所有现有会话。
 
-数据库配置、账户、会话、限流、审计和历史记录集合均禁止普通客户端直接读写。`WebAdminSettings/main.allowedOrigins` 仅允许准确站点来源；上传检查文件类型、大小和所属账号，发布 / 改公告有审计记录。
+数据库配置、账户、会话、限流、审计和历史记录均禁止普通客户端直接读写。`admin_origins` 仅允许准确站点来源；上传检查文件类型、大小和所属账号，发布 / 改公告有审计记录。
 
-更换密码必须由具备云环境管理权限的维护者生成新 scrypt 摘要并递增 `passwordVersion`。前端没有注册入口、密码恢复接口或内置万能密码。
+更换密码必须由具备业务数据库管理权限的维护者生成新 scrypt 摘要并递增 `credential_version`。前端没有注册入口、密码恢复接口或内置万能密码。
 
 ## 设计参考与图片授权
 
@@ -105,7 +105,9 @@ CloudBase 默认域名用于测试。以后绑定自己的域名后，需同步�
 
 ## 管理后台服务器适配
 
-`admin/public/admin-config.js` 保持 `mode: 'cloudbase'` 和现有管理接口。完成业务数据迁移、管理员账号导入和站点 Origin 授权后，部署时才显式改成 `mode: 'backend'`，`backendOrigin` 为 `https://collect.linkx.ink`（仅 origin，不带路径）。CSP 已允许该域名。目录读 `/api/v1/locations` 的市场地区树，其余请求读写 `/api/v1/admin/*`。不同模式、地址和账号的会话及待发布草稿隔离；切换后需重新登录。
+业务数据和管理员账号已迁移，站点 Origin 已授权；当前源码与线上配置均为 `mode: 'backend'`，`backendOrigin` 为 `https://collect.linkx.ink`（仅 origin，不带路径）。CSP 已允许该域名。目录读 `/api/v1/locations` 的市场地区树，其余请求读写 `/api/v1/admin/*`。不同模式、地址和账号的会话及待发布草稿隔离；旧标签页需刷新并重新登录。
+
+2026-09-30 已按资源文件、配置、HTML 的顺序发布 6 个管理站文件，普通线上 URL 的 SHA-256 与构建产物一致；CORS 预检通过，34 项管理测试通过（含真实隔离 PostgreSQL，零跳过）。本次切换尚未使用生产管理员密码验证成功登录，不能用旧版登录记录替代这项验收。
 
 生产构建为管理配置生成带内容摘要的文件名，并更新 `/admin/index.html` 的引用。托管服务会长时间缓存 JavaScript，不能只覆盖旧的 `admin-config.js` 来切换数据源。先上传新配置和其他静态资源，最后上传引用它们的 HTML；核验正常 URL 返回的 HTML 与配置摘要，旧标签页需重新加载。
 
