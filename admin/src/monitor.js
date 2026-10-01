@@ -16,22 +16,32 @@ export function createVisiblePoller(read, { document, onResult, onError, interva
 export const collectionStatus = collector => collector?.status !== 'ready' ? '暂不可用' : collector.collection?.restoreGate === 'closed' ? '恢复中' : collector.collection?.enabled ? '正在采集' : '采集关闭'
 export const hostSampledAt = status => status?.host?.sampledAt ?? null
 
+export const monitorMetrics = [
+  { key: 'requests', icon: 'requests', label: '接口请求', unit: '次/分钟' },
+  { key: 'activeUsers', icon: 'users', label: '活跃用户', unit: '人/分钟' },
+  { key: 'events', icon: 'activity', label: '采集事件', unit: '条/分钟' },
+  { key: 'cpu', icon: 'cpu', label: 'CPU 使用率', unit: '%' }
+]
+
 export function historySeries(history, metric) {
-  const from = history.from, to = history.to, points = history.points || []
-  const keys = metric === 'memory' ? ['memoryUsedBytes', 'memoryTotalBytes'] : ['diskUsedBytes', 'diskTotalBytes']
-  const maximum = metric === 'cpu' ? 100 : Math.max(1, ...points.map(point => Number.isFinite(point[keys[1]]) ? point[keys[1]] : 0))
+  const from = history.from, to = history.to
+  const points = (history.points || []).map(point => {
+    const summary = point[metric]
+    return Number.isFinite(point.at) && point.at >= from && point.at <= to && summary && Number.isFinite(summary.mean) && Number.isFinite(summary.min) && Number.isFinite(summary.max) && summary.min >= 0 && summary.min <= summary.mean && summary.mean <= summary.max && Number.isSafeInteger(summary.samples) && summary.samples > 0 && (metric !== 'cpu' || summary.max <= 100) && Number.isFinite(summary.peakAt) && summary.peakAt >= from && summary.peakAt <= to ? { at: point.at, ...summary } : null
+  })
+  const largest = Math.max(0, ...points.filter(Boolean).map(point => point.max))
+  const magnitude = 10 ** Math.floor(Math.log10(Math.max(1, largest / 4)))
+  const step = Math.ceil([1, 2, 2.5, 5, 10].find(value => value * magnitude >= largest / 4) * magnitude)
+  const maximum = metric === 'cpu' ? 100 : Math.max(1, step) * 4
   const segments = [], valid = []
   let segment = [], previous = null
+  const x = at => 54 + (at - from) / Math.max(1, to - from) * 650, y = value => 16 + (1 - value / maximum) * 154
   for (const point of points) {
-    const value = metric === 'cpu' ? point.cpuPercent : point[keys[0]]
-    const usable = Number.isFinite(point.at) && point.at >= from && point.at <= to && Number.isFinite(value) && value >= 0 && value <= maximum && (metric === 'cpu' || Number.isFinite(point[keys[1]]) && point[keys[1]] > 0 && value <= point[keys[1]])
-    if (!usable || previous !== null && point.at - previous > (to - from) / 720 * 3) { if (segment.length) segments.push(segment); segment = [] }
-    if (usable) {
-      const item = { at: point.at, value, x: 54 + (point.at - from) / Math.max(1, to - from) * 650, y: 16 + (1 - value / maximum) * 154 }
-      segment.push(item); valid.push(item)
-    }
-    previous = point.at
+    if (!point || previous !== null && point.at - previous > history.bucketMs * 1.5) { if (segment.length) segments.push(segment); segment = [] }
+    if (point) { const startX = x(point.at), endX = x(Math.min(to, point.at + history.bucketMs)); const item = { ...point, startX, endX, x: (startX + endX) / 2, y: y(point.mean), lowY: y(point.min), highY: y(point.max) }; segment.push(item); valid.push(item); previous = point.at }
+    else previous = null
   }
   if (segment.length) segments.push(segment)
-  return { from, to, maximum, segments, count: valid.length, firstAt: valid[0]?.at ?? null, latest: valid.at(-1) ?? null }
+  const peak = valid.reduce((best, point) => !best || point.max > best.value ? { value: point.max, at: point.peakAt, x: x(point.peakAt), y: y(point.max) } : best, null)
+  return { from, to, maximum, ticks: Array.from({ length: 5 }, (_, i) => maximum / 4 * i), segments, count: valid.length, firstAt: valid[0]?.at ?? null, latest: valid.at(-1) ?? null, peak }
 }

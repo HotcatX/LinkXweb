@@ -92,15 +92,24 @@ test('history polling remains independent of realtime sampling and pauses in bac
 })
 
 test('history charts preserve time spacing and distinguish missing samples from zero usage',()=>{
- const point=(at,cpuPercent)=>({at,cpuPercent,memoryUsedBytes:512,memoryTotalBytes:1024,diskUsedBytes:2048,diskTotalBytes:4096})
- const history={from:0,to:720000,points:[point(1000,12),point(2000,0),point(3000,null),point(4000,20),point(7000,30),point(11000,40)]}
- const cpu=historySeries(history,'cpu');assert.equal(cpu.maximum,100);assert.equal(cpu.count,5);assert.deepEqual(cpu.segments.map(segment=>segment.map(point=>point.value)),[[12,0],[20,30],[40]])
+ const point=(at,value)=>({at,cpu:value===null?null:{mean:value,min:value,max:value,peakAt:at,samples:1}})
+ const history={from:0,to:720000,bucketMs:2000,points:[point(1000,12),point(2000,0),point(3000,null),point(4000,20),point(7000,30),point(11000,40)]}
+ const cpu=historySeries(history,'cpu');assert.equal(cpu.maximum,100);assert.equal(cpu.count,5);assert.deepEqual(cpu.segments.map(segment=>segment.map(point=>point.mean)),[[12,0],[20,30],[40]])
  assert.equal(cpu.segments[0][1].y,170);assert.ok(Math.abs(cpu.segments[1][1].x-cpu.segments[1][0].x-650*3000/720000)<1e-10);assert.equal(cpu.latest.at,11000)
- const memory=historySeries(history,'memory'),disk=historySeries(history,'disk');assert.equal(memory.count,6);assert.equal(memory.maximum,1024);assert.equal(memory.latest.value,512);assert.equal(disk.maximum,4096);assert.equal(disk.latest.value,2048)
  assert.equal(historySeries({from:0,to:720000,points:[point(1000,null)]},'cpu').count,0)
  assert.deepEqual(historySeries({from:0,to:720000,points:[]},'cpu').segments,[])
  assert.equal(historySeries({from:0,to:720000,points:[point(720001,99)]},'cpu').latest,null)
- assert.equal(historySeries({from:0,to:720000,points:[{...point(1000,0),memoryUsedBytes:0,memoryTotalBytes:0}]},'memory').latest,null)
+})
+
+test('traffic plots retain a short peak instead of scaling to an averaged bucket',()=>{
+ const summary=(mean,min,max,peakAt)=>({mean,min,max,peakAt,samples:15})
+ const history={from:0,to:3600000,bucketMs:900000,points:[{at:0,requests:summary(4,0,300,660000)},{at:900000,requests:null},{at:1800000,requests:summary(2,0,5,1920000)},{at:2700000,requests:summary(0,0,0,2700000)}]}
+ const series=historySeries(history,'requests');assert.equal(series.count,3);assert.equal(series.segments.length,2);assert.ok(series.maximum>=300);assert.deepEqual(series.peak.value,300);assert.equal(series.peak.at,660000)
+ assert.equal(series.segments[0][0].mean,4);assert.equal(series.segments[0][0].max,300);assert.ok(series.segments[0][0].highY<series.segments[0][0].y);assert.equal(series.latest.mean,0)
+ assert.ok(series.ticks.every(Number.isInteger));assert.equal(series.ticks[0],0)
+ const single=historySeries({from:0,to:120000,bucketMs:120000,points:[{at:0,activeUsers:summary(1,1,1,60000)}]},'activeUsers');assert.equal(single.count,1);assert.ok(single.ticks.every(Number.isInteger));assert.equal(single.peak.value,1)
+ const empty=historySeries({...history,points:[]},'events');assert.equal(empty.count,0);assert.equal(empty.peak,null);assert.equal(empty.latest,null)
+ const invalid=historySeries({...history,points:[{at:0,events:summary(5,0,4,0)}]},'events');assert.equal(invalid.count,0)
 })
 
 test('rapid history range changes queue only the latest range after the in-flight request',async()=>{
