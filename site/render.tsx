@@ -1,6 +1,6 @@
 import React from "react";
 import { renderToString } from "react-dom/server";
-import Home from "../app/page";
+import Home from "./Home";
 export function render() {
   return renderToString(<Home />);
 }
@@ -11,4 +11,4 @@ export {
   ROUTE_PRICES,
   filterRoutes,
   referencePrice,
-} from "../app/pricing";
+} from "./pricing";

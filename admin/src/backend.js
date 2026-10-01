@@ -19,13 +19,15 @@ export function createBackendApi({ endpoint, storage, operationStorage = storage
   try { const saved = JSON.parse(storage.getItem(sessionKey)); if (saved?.token && saved.expiresAtMs > Date.now()) session = saved } catch (_) {}
   function clear() { session = null; try { storage.removeItem(sessionKey) } catch (_) {} }
   const operations = () => createOperations(operationStorage, `admin_operations:${endpoint}:${session.admin.accountId}`)
-  async function request(path, { method = 'GET', data, raw, key, anonymous = false } = {}) {
+  async function request(path, { method = 'GET', data, raw, key, query, anonymous = false } = {}) {
     const actor = session
     if (!anonymous && (!actor || actor.expiresAtMs <= Date.now())) { clear(); onUnauthorized(); throw new Error('登录已过期，请重新登录') }
     if (!/^\/api\/v1\/[a-zA-Z0-9_/%-]+$/.test(path) || new URL(path, endpoint).origin !== new URL(endpoint).origin) throw new Error('管理接口路径无效')
+    const url = new URL(path, endpoint)
+    if (query) for (const [name, value] of Object.entries(query)) if (value !== undefined && value !== null && value !== '') url.searchParams.set(name, String(value))
     const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 90000)
     try {
-      const response = await fetcher(new URL(path, endpoint).href, { method, credentials: 'omit', cache: 'no-store', redirect: 'error', signal: controller.signal,
+      const response = await fetcher(url.href, { method, credentials: 'omit', cache: 'no-store', redirect: 'error', signal: controller.signal,
         headers: { ...(data !== undefined || raw ? { 'Content-Type': raw ? 'application/octet-stream' : 'application/json' } : {}),
           ...(anonymous ? {} : { Authorization: `Bearer ${actor.token}` }), ...(key ? { 'Idempotency-Key': key } : {}) },
         ...(raw ? { body: raw } : data !== undefined ? { body: JSON.stringify(data) } : {}) })
@@ -52,10 +54,14 @@ export function createBackendApi({ endpoint, storage, operationStorage = storage
     if (session !== actor) throw new Error('登录账号已变化，请重新加载后操作')
     try {
       const result = await request(path, { method: 'POST', data: JSON.parse(operation.body), key: operation.key })
+      const expectedItems = path === '/api/v1/admin/market/listings/delete' ? JSON.parse(operation.body).items : null
       const valid = path.endsWith('/community') ? Number.isSafeInteger(result.version) && result.config?.group && result.config?.announcement
         : path.endsWith('/market/templates') ? typeof result.template?.id === 'string'
-        : path.endsWith('/edit') ? typeof result.id === 'string' && Number.isSafeInteger(result.version)
-        : path.endsWith('/delete') ? typeof result.id === 'string' && result.status === 'deleted' : false
+        : path.includes('/console/') ? result.row && typeof result.row === 'object' && /^[a-f0-9]{64}$/.test(result.version)
+        : path.endsWith('/edit') || path.endsWith('/status') ? typeof result.id === 'string' && Number.isSafeInteger(result.version)
+        : path === '/api/v1/admin/market/listings/delete' ? Array.isArray(result.deleted) && result.deleted.length === expectedItems.length && new Set(result.deleted.map(item => item.id)).size === expectedItems.length && result.deleted.every(item => expectedItems.some(expected => expected.id === item.id && Number.isSafeInteger(item.version) && item.version >= expected.expectedVersion && item.status === 'deleted'))
+        : path.endsWith('/delete') ? typeof result.id === 'string' && result.status === 'deleted'
+        : false
       if (!valid) throw new Error('保存响应无效，请重试原操作确认结果')
       journal.complete(path, operation.key); return result
     } catch (error) {
@@ -66,16 +72,31 @@ export function createBackendApi({ endpoint, storage, operationStorage = storage
     }
   }
   async function call(action, data = {}) {
+    if (action.startsWith('console') && session?.admin?.role !== 'superadmin') { const error = new Error('当前账号没有此操作权限'); error.code = 'ADMIN_FORBIDDEN'; throw error }
     const base = '/api/v1/admin'; const id = value => encodeURIComponent(value)
     switch (action) {
-      case 'session': return request(`${base}/session`)
+      case 'session': {
+        const actor = session, result = await request(`${base}/session`)
+        if (session === actor && result.admin?.accountId === actor.admin.accountId) { actor.admin = result.admin; try { storage.setItem(sessionKey, JSON.stringify(actor)) } catch (_) {} }
+        return result
+      }
       case 'bootstrap': {
         const [locations, templates, community] = await Promise.all([request('/api/v1/locations', { anonymous: true }), request(`${base}/market/templates`), request(`${base}/community`)])
         return { regionTree: marketRegions(locations.marketRegionTree), templates: templates.templates, community: { ...community.config, version: community.version } }
       }
+      case 'listItems': return request(`${base}/market/listings`, { query: { limit: 50, ...data } })
+      case 'deleteItems': return mutate(`${base}/market/listings/delete`, data)
+      case 'consoleStatus': return request(`${base}/console/status`)
+      case 'consoleHistory': return request(`${base}/console/history`, { query: { range: data.range || 'day' } })
+      case 'consoleTables': return request(`${base}/console/tables`)
+      case 'consoleRows': return request(`${base}/console/rows`, { query: { limit: 30, ...data } })
+      case 'consoleRow': return request(`${base}/console/rows/${id(data.table)}/${id(data.key)}`)
+      case 'consoleEdit': return mutate(`${base}/console/rows/${id(data.table)}/${id(data.key)}/edit`, { expectedVersion: data.expectedVersion, patch: data.patch })
+      case 'consoleEvents': return request(`${base}/console/events`, { query: { limit: 30, ...data } })
       case 'getItem': return request(`${base}/market/listings/${id(data.id)}`)
       case 'bulkCreate': return request(`${base}/market/batches`, { method: 'POST', data })
       case 'updateItem': return mutate(`${base}/market/listings/${id(data.id)}/edit`, { expectedVersion: data.expectedVersion, patch: data.patch })
+      case 'itemStatus': return mutate(`${base}/market/listings/${id(data.id)}/status`, { expectedVersion: data.expectedVersion, status: data.status })
       case 'listTemplates': return request(`${base}/market/templates`)
       case 'saveTemplate': return mutate(`${base}/market/templates`, data)
       case 'deleteTemplate': return mutate(`${base}/market/templates/${id(data.id)}/delete`, {})

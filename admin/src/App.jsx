@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react'
 import { createApi, resolveApiConfig } from './api.js'
 import BulkManager from './BulkManager.jsx'
 import CommunityManager from './CommunityManager.jsx'
+import CommunityListings from './CommunityListings.jsx'
+import Monitor from './Monitor.jsx'
+import DataBrowser from './DataBrowser.jsx'
+import CollectionLog from './CollectionLog.jsx'
+import { isSuperadmin } from './catalog.js'
 import { createWorkspaceLoader } from './workspace.js'
 
 export function Icon({ name, size = 20 }) {
@@ -15,6 +20,13 @@ export function Icon({ name, size = 20 }) {
     edit: <><path d="m15 5 4 4M4 20l5-1L20 8a2.8 2.8 0 0 0-4-4L5 15l-1 5Z" /></>,
     close: <path d="m6 6 12 12M18 6 6 18" />,
     arrow: <path d="M4 12h16m-6-6 6 6-6 6" />,
+    monitor: <><rect x="3" y="4" width="18" height="13" rx="2" /><path d="M8 21h8M12 17v4m-6-9 3-3 3 4 5-6" /></>,
+    cpu: <><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 3v3m6-3v3M9 18v3m6-3v3M3 9h3m-3 6h3m12-6h3m-3 6h3M10 10h4v4h-4z" /></>,
+    memory: <><rect x="3" y="6" width="18" height="12" rx="2" /><path d="M6 10h4v4H6zm8 0h4v4h-4zM7 18v3m5-3v3m5-3v3" /></>,
+    disk: <><path d="m5 4-2 10v5a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-5L19 4Z" /><path d="M3 14h18m-4 3h1m-5 0h1" /></>,
+    activity: <path d="M3 12h4l3-8 4 16 3-8h4" />,
+    history: <><path d="M3 11a9 9 0 1 1 2 7M3 4v7h7M12 7v5l3 2" /></>,
+    data: <><ellipse cx="12" cy="5" rx="8" ry="3" /><path d="M4 5v14c0 4 16 4 16 0V5M4 12c0 4 16 4 16 0" /></>,
     lock: <><rect x="5" y="10" width="14" height="11" rx="3" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3" /></>
   }
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name] || paths.grid}</svg>
@@ -52,7 +64,7 @@ function Login({ api, onLogin }) {
   }
   return <main className="login-shell">
     <div className="login-brand"><div className="brand-mark">极</div><span>极链行 <small>ADMIN</small></span></div>
-    <section className="login-card"><div className="eyebrow">管理后台</div><h1>欢迎回来</h1><p className="muted">登录后管理商品发布和拼车群公告。</p>
+    <section className="login-card"><div className="eyebrow">管理后台</div><h1>欢迎回来</h1><p className="muted">管理社区发布、公告与服务运行。</p>
       <form onSubmit={submit}><Field label="管理员账号"><input autoComplete="username" required value={username} onChange={e => setUsername(e.target.value)} maxLength={64} autoCapitalize="none" /></Field><Field label="密码"><input type="password" autoComplete="current-password" required value={password} onChange={e => setPassword(e.target.value)} maxLength={256} /></Field><Notice message={error} /><button className="button primary full" disabled={busy}>{busy ? '正在登录…' : '登录管理后台'}<Icon name="arrow" /></button></form>
       <div className="login-note"><Icon name="lock" size={16} /><span>仅限已授权管理员</span></div>
     </section><p className="login-footer">Campus Rides · 共享生活</p>
@@ -71,18 +83,25 @@ export default function App() {
     error: error => setError(error.message), finish: () => setLoading(false)
   }), [api])
   const load = () => loader.load()
-  useEffect(() => { setBootstrap(null); setLoading(false); if (session) void load(); return () => loader.invalidate() }, [session, loader])
+  const superadmin = isSuperadmin(session)
+  const titles = { bulk: '批量发布', listings: '社区管理', community: '群码与公告', monitor: '运行监控', data: '数据浏览', events: '采集记录' }
+  const tabs = [...(superadmin ? [['monitor', 'monitor'], ['data', 'data'], ['events', 'activity']] : []), ['bulk', 'grid'], ['listings', 'grid'], ['community', 'qr']]
+  useEffect(() => { setTab(isSuperadmin(session) ? 'monitor' : 'bulk'); setBootstrap(null); setLoading(false); if (session) void load(); return () => loader.invalidate() }, [session, loader])
   async function logout() { loader.invalidate(); setSession(null); setBootstrap(null); setLoading(false); try { await api.logout() } catch (_) {} }
   return <>{!session && <Login api={api} onLogin={setSession} />}<div className="app-shell" hidden={!session}>
     <aside className="sidebar"><a className="brand" href="./" aria-label="极链行管理后台"><div className="brand-mark">极</div><div>极链行<span>管理后台</span></div></a>
-      <div className="nav-label">工作台</div><nav aria-label="管理功能"><button type="button" className={tab === 'bulk' ? 'active' : ''} onClick={() => setTab('bulk')}><Icon name="grid" /><span>批量发布</span></button><button type="button" className={tab === 'community' ? 'active' : ''} onClick={() => setTab('community')}><Icon name="qr" /><span>群码与公告</span></button></nav>
-      <div className="sidebar-bottom"><div className="account-avatar">A</div><div className="account-name">{session?.admin?.accountId || session?.admin?.username || '管理员'}<span>管理员账号</span></div><button type="button" className="icon-button" aria-label="退出登录" title="退出登录" onClick={logout}><Icon name="logout" /></button></div>
+      <div className="nav-label">工作台</div><nav aria-label="管理功能">{tabs.map(([name, icon]) => <button type="button" key={name} className={tab === name ? 'active' : ''} onClick={() => setTab(name)}><Icon name={icon} /><span>{titles[name]}</span></button>)}</nav>
+      <div className="sidebar-bottom"><div className="account-avatar">A</div><div className="account-name">{session?.admin?.accountId || session?.admin?.username || '管理员'}<span>{superadmin ? '最高管理员' : '普通管理员'}</span></div><button type="button" className="icon-button" aria-label="退出登录" title="退出登录" onClick={logout}><Icon name="logout" /></button></div>
     </aside>
-    <div className="workspace"><header className="topbar"><span>共享生活 <span className="crumb">/</span> {tab === 'bulk' ? '批量发布' : '群码与公告'}</span><button className="theme-switch" onClick={toggleTheme}>{dark ? '浅色模式' : '深色模式'}</button></header>
+    <div className="workspace"><header className="topbar"><span>共享生活 <span className="crumb">/</span> {titles[tab]}</span><button className="theme-switch" onClick={toggleTheme}>{dark ? '浅色模式' : '深色模式'}</button></header>
       <main className="main-content"><Notice message={error} />
         {loading && !bootstrap ? <div className="loading-state" role="status">正在读取管理数据…</div> : !bootstrap ? <div className="panel empty-state"><h2>数据暂未加载</h2><button className="button primary" onClick={load} disabled={loading}>重新加载</button></div> : <>
           {api.pendingOperations?.().length > 0 && <div className="notice" role="status">上次保存结果尚未确认。<button className="text-button" disabled={loading} onClick={async () => { setLoading(true); try { await api.recoverOperations(); await load() } catch (e) { setError(e.message) } finally { setLoading(false) } }}>核对上次保存结果</button></div>}
           <div hidden={tab !== 'bulk'}><BulkManager key={api.workspaceKey()} api={api} regionTree={bootstrap.regionTree || []} initialTemplates={bootstrap.templates || []} /></div>
+          {tab === 'listings' && <CommunityListings api={api} />}
+          {superadmin && tab === 'monitor' && <Monitor api={api} />}
+          {superadmin && tab === 'data' && <DataBrowser api={api} onNavigate={setTab} />}
+          {superadmin && tab === 'events' && <CollectionLog api={api} />}
           <div hidden={tab !== 'community'}><CommunityManager key={`${api.workspaceKey()}:${bootstrap.community.version}`} api={api} initialConfig={bootstrap.community} /></div>
         </>}
       </main>

@@ -4,12 +4,6 @@ export function validateImageFile(file) {
   if (!file || !['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) throw new Error('请选择 JPG、PNG 或 WebP 图片')
   if (!file.size || file.size > 20 * 1024 * 1024) throw new Error('原图大小需在 20 MB 以内')
 }
-export async function base64File(blob) {
-  const buffer = new Uint8Array(await blob.arrayBuffer())
-  let binary = ''
-  for (let offset = 0; offset < buffer.length; offset += 32768) binary += String.fromCharCode(...buffer.subarray(offset, offset + 32768))
-  return btoa(binary)
-}
 export async function compressMarketImage(file, { thumbnail = false } = {}) {
   validateImageFile(file)
   const bitmap = await createImageBitmap(file)

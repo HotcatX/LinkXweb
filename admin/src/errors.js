@@ -1,4 +1,6 @@
 const errors = {
+  CONSOLE_INVALID_KEY: '记录或分页已失效，请重新查询', CONSOLE_RESULT_TOO_LARGE: '内容过大，请缩小查询或单独查看记录', CONSOLE_TABLE_NOT_FOUND: '请选择有效的数据表', CONSOLE_BUSY: '控制台查询较多，请稍后刷新', CONSOLE_USER_NOT_FOUND: '请输入有效的用户 ID 或 OpenID', ADMIN_MONITOR_UNAVAILABLE: '运行监控或采集查询暂不可用，请稍后刷新', CONSOLE_ROW_READ_ONLY: '此表只读，请使用对应运营功能', CONSOLE_FIELD_READ_ONLY: '此字段不可修改',
+  ADMIN_FORBIDDEN: '当前账号没有此操作权限', CONSOLE_VERSION_CONFLICT: '资料已更新，请重新加载后编辑', CONSOLE_TABLE_NOT_ALLOWED: '此表不开放控制台访问', CONSOLE_ROW_NOT_FOUND: '没有找到此记录', CONSOLE_UNAVAILABLE: '控制台暂不可用，请稍后刷新',
   INVALID_DATE_WINDOW: '请检查日期范围：商品最多两个月，转租最多十八个月',
   FILE_UPLOADER_MISMATCH: '请使用当前账号重新上传图片', FILE_READONLY: '历史图片只允许保留原引用，请重新上传',
   INVALID_CREDENTIALS: '账号或密码不正确', LISTING_NOT_FOUND: '商品不存在或不可管理',

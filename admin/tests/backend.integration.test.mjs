@@ -79,3 +79,47 @@ test('real PostgreSQL/backend: browser admin login, all business contracts, raw 
  await restored.logout();assert.equal(restored.getSession(),null)
  await assert.rejects(restored.call('session'),/登录已过期/)
 })
+
+test('real PostgreSQL/backend: two browser roles, user lookup and controlled edit, paged community and atomic deletion', {
+ skip: !source || !process.env.BACKEND_TEST_DATABASE_URL, timeout: 30000
+}, async t => {
+ const backend=resolve(source),load=path=>import(pathToFileURL(resolve(backend,path)).href)
+ const [{createApp},{createTestDatabase}]=await Promise.all([load('src/app.ts'),load('test/helpers/database.ts')])
+ const db=await createTestDatabase(),appId='web-console-client',origin='https://admin.console.test'
+ const app=await createApp({pool:db.pool,config:{databaseUrl:'',host:'127.0.0.1',port:3100,appId,businessMode:'active',sessionTtlSeconds:3600},exchange:async()=>{throw Error('not used')}})
+ t.after(async()=>{await app.close();await db.close()})
+ const salt=Buffer.alloc(32,7),password='synthetic-console-password'
+ for(const [id,role] of [['admin','admin'],['superadmin','superadmin']])await db.pool.query('INSERT INTO admin_accounts(app_id,id,owner_key,enabled,credential_version,password_salt,password_hash,role) VALUES($1,$2,$2,true,1,$3,$4,$5)',[appId,id,salt,scryptSync(password,salt,64),role])
+ await db.pool.query('INSERT INTO admin_origins VALUES($1,$2)',[appId,origin])
+ const user=(await db.pool.query("INSERT INTO users(app_id,openid,name,profile) VALUES($1,'synthetic_console_openid','Original',$2) RETURNING id",[appId,{phone:'synthetic-phone',wechatId:'synthetic-wechat'}])).rows[0]
+ let losePath='',seen=[]
+ const options={endpoint:'https://backend.console.test/',storage:storage(),operationStorage:storage(),fetcher:async(url,init)=>{
+  const target=new URL(url);seen.push({url,...init});const result=await app.inject({method:init.method,url:target.pathname+target.search,headers:{...init.headers,origin},payload:init.body})
+  if(losePath===target.pathname){losePath='';throw new TypeError('synthetic commit reply lost')}
+  return {ok:result.statusCode<400,status:result.statusCode,json:async()=>result.json()}
+ }}
+ const api=createApi(options);await api.login('admin',password);assert.equal((await api.call('session')).admin.role,'admin')
+ await assert.rejects(api.call('consoleTables'),error=>error.code==='ADMIN_FORBIDDEN')
+ const serverDenied=await app.inject({method:'GET',url:'/api/v1/admin/console/tables',headers:{origin,authorization:`Bearer ${api.getSession().token}`}});assert.equal(serverDenied.statusCode,403)
+ const historyDenied=await app.inject({method:'GET',url:'/api/v1/admin/console/history?range=day',headers:{origin,authorization:`Bearer ${api.getSession().token}`}});assert.equal(historyDenied.statusCode,403)
+ const makeDraft=title=>draftPayload({...blankDraft(),title,price:'12',sellerName:'Synthetic',sellerWechat:'synthetic',regionState:'NJ',regionCounty:'Bergen',regionArea:'Fort Lee',images:[]})
+ const published=await api.call('bulkCreate',{batchId:'console_batch',items:[{clientRequestId:'first',item:makeDraft('First')},{clientRequestId:'second',item:makeDraft('Second')}]});assert.equal(published.success,2)
+ const page=await api.call('listItems',{limit:1,status:'all'});assert.equal(page.items.length,1);assert.ok(page.nextCursor)
+ const next=await api.call('listItems',{limit:1,status:'all',cursor:page.nextCursor});assert.equal(next.items.length,1);assert.notEqual(next.items[0].id,page.items[0].id)
+ await api.login('superadmin',password);assert.equal(api.getSession().admin.role,'superadmin')
+ const tables=await api.call('consoleTables');const users=tables.tables.find(item=>item.key==='users');assert.deepEqual(users.editableFields,['name','profile']);assert.ok(users.columns.some(item=>item.name==='openid'))
+ const rows=await api.call('consoleRows',{table:'users',search:user.id});assert.equal(rows.items.length,1);assert.equal(rows.items[0].row.openid,'synthetic_console_openid')
+ const detail=await api.call('consoleRow',{table:'users',key:rows.items[0].key});assert.match(detail.version,/^[a-f0-9]{64}$/)
+ const edit={table:'users',key:detail.key,expectedVersion:detail.version,patch:{name:'Updated',profile:{phone:'new-synthetic-phone'}}}
+ losePath=`/api/v1/admin/console/rows/users/${detail.key}/edit`;await assert.rejects(api.call('consoleEdit',edit));const original=seen.at(-1)
+ const restored=createApi(options);await restored.recoverOperations();assert.equal(seen.at(-1).headers['Idempotency-Key'],original.headers['Idempotency-Key']);assert.equal(seen.at(-1).body,original.body)
+ const updated=await restored.call('consoleRow',{table:'users',key:detail.key});assert.equal(updated.row.name,'Updated');assert.equal(updated.row.openid,detail.row.openid);assert.equal(updated.row.profile.wechatId,'synthetic-wechat');assert.equal(updated.row.profile.phone,'new-synthetic-phone')
+ await assert.rejects(restored.call('consoleEdit',{...edit,patch:{name:'Stale'}}),error=>error.code==='CONSOLE_VERSION_CONFLICT')
+ const adminListing=await restored.call('getItem',{id:page.items[0].id});await restored.call('itemStatus',{id:adminListing.id,expectedVersion:adminListing.version,status:'offline'})
+ const changed=await restored.call('getItem',{id:adminListing.id});assert.equal(changed.status,'offline')
+ await restored.login('admin',password)
+ const all=await restored.call('listItems',{status:'all'});const deletion={items:all.items.map(item=>({id:item.id,expectedVersion:item.version}))}
+ losePath='/api/v1/admin/market/listings/delete';await assert.rejects(restored.call('deleteItems',deletion));const deletionRequest=seen.at(-1)
+ await restored.recoverOperations();assert.equal(seen.at(-1).headers['Idempotency-Key'],deletionRequest.headers['Idempotency-Key']);assert.equal((await restored.call('listItems',{status:'all'})).items.length,0)
+ assert.equal((await db.pool.query("SELECT count(*) FROM market_listings WHERE status='deleted'")).rows[0].count,'2')
+})

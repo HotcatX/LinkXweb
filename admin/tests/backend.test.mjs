@@ -3,13 +3,12 @@ import assert from 'node:assert/strict'
 import { createApi, resolveApiConfig } from '../src/api.js'
 import { createImageURLCache, createImageRefresh } from '../src/image-urls.js'
 import { blankDraft, draftPayload, contentDraft, templatePayload, communityPayload, normalizeEditableCommunity, cents } from '../src/model.js'
-import { fromLegacyListing, toLegacyListing } from '../src/compat/cloudbase.js'
 import { loadWorkspace, saveWorkspace, createWorkspaceLoader } from '../src/workspace.js'
 import { createBatch, applyBatchResult, uncertainBatch } from '../src/batch.js'
 import { marketRegions } from '../src/backend.js'
 const storage = () => { const values = new Map(); return { getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k) } }
 const reply = (data,status=200) => ({ ok: status < 400, status, json:async()=>status<400?{ok:true,data}:{ok:false,error:{code:data}} })
-const session = username => ({token:'a'.repeat(64),expiresAt:new Date(Date.now()+3600000).toISOString(),admin:{accountId:username,ownerKey:'synthetic-owner'}})
+const session = username => ({token:'a'.repeat(64),expiresAt:new Date(Date.now()+3600000).toISOString(),admin:{accountId:username,ownerKey:'synthetic-owner',role:username==='superadmin'?'superadmin':'admin'}})
 const draft = () => ({ ...blankDraft(), title:'Desk',price:'10.29',sellerName:'Test',sellerWechat:'test',regionState:'NJ',regionCounty:'Bergen',regionArea:'Fort Lee', images:[] })
 function setup(handler) {
   const records=[]; const saved=storage(); const persistent=storage()
@@ -20,8 +19,10 @@ function setup(handler) {
   }}
   return {api:createApi(options),options,records,saved,persistent}
 }
-test('deployment defaults to CloudBase; backend mode requires origin and never interprets unknown mode',()=>{
- assert.deepEqual(resolveApiConfig({apiUrl:'https://legacy.example/admin-api'},'https://admin.example'),{mode:'cloudbase',endpoint:'https://legacy.example/admin-api'})
+test('deployment has one backend writer and rejects every retired transport mode',()=>{
+ assert.deepEqual(resolveApiConfig({backendOrigin:'https://admin.linkx.ink'},'https://admin.linkx.ink'),{mode:'backend',endpoint:'https://admin.linkx.ink/'})
+ assert.throws(()=>resolveApiConfig({apiUrl:'https://legacy.example/admin-api'},'https://admin.example'))
+ assert.throws(()=>resolveApiConfig({mode:'cloudbase',apiUrl:'https://legacy.example/admin-api'},'https://admin.example'))
  assert.throws(()=>resolveApiConfig({mode:'backend'},'https://admin.example'))
  assert.throws(()=>resolveApiConfig({mode:'backend',backendOrigin:'https://backend.example/path'},'https://admin.example'))
  assert.throws(()=>createApi({mode:'automatic'}))
@@ -35,7 +36,7 @@ test('backend auth uses canonical envelope, isolated session namespace and no am
  assert.equal(s.records[1].headers.Authorization,'Bearer '+'a'.repeat(64))
  assert.equal(createApi(s.options).getSession().admin.accountId,'admin')
  assert.equal(createApi({...s.options,endpoint:'https://other.example/'}).getSession(),null)
- assert.equal(createApi({...s.options,mode:'cloudbase'}).getSession(),null)
+ assert.throws(()=>createApi({...s.options,mode:'cloudbase'}))
 })
 test('lost edit reply survives reload with exact version/body/key and rejects changed uncertain operation',async()=>{
  let lost=true
@@ -111,20 +112,6 @@ test('canonical price/sublet/file payload round-trips without temporary URLs or 
  assert.ok(!JSON.stringify(body).includes('signed.example'));assert.equal(body.imageFileIDs,undefined)
  assert.deepEqual(draftPayload(contentDraft(body,body.images)),body)
  assert.equal(templatePayload(value).images,undefined);assert.throws(()=>cents('1.009'))
-})
-test('legacy compatibility translates canonical goods/sublet/community and original image upload',async()=>{
- const payload=draftPayload({...draft(),listingType:'sublet',category:'Studio',deposit:'0',images:[{fileId:'cloud://image',thumbFileId:'cloud://thumb'}]})
- const legacy=toLegacyListing(payload);const canonical=fromLegacyListing({...legacy,version:7,_id:'item'})
- assert.deepEqual(canonical.content,((({images,...data})=>data)(payload)))
- assert.deepEqual(canonical.images,payload.images);assert.equal(canonical.version,7)
- const calls=[];const api=createApi({endpoint:'https://legacy.example/admin-api',storage:storage(),fetcher:async(_,init)=>{
-  const body=JSON.parse(typeof init.body==='string'?init.body:new TextDecoder().decode(init.body));calls.push(body)
-  return {ok:true,status:200,json:async()=>body.action==='login'?{ok:true,token:'a'.repeat(64),expiresAtMs:Date.now()+100000,admin:{username:'admin'}}:{ok:true,fileID:'cloud://upload'}}
- }})
- await api.login('admin','synthetic-password');await api.call('bulkCreate',{batchId:'batch',items:[{clientRequestId:'request',item:payload}]})
- assert.equal(calls[1].items[0].price,10.29);assert.equal(calls[1].items[0].clientRequestId,'request')
- await api.uploadImage(new Blob([new Uint8Array([0,255])],{type:'image/png'}),{purpose:'community',filename:'qr.png'})
- assert.equal(calls[2].base64,'AP8=');assert.equal(calls[2].purpose,'community')
 })
 test('workspace stores frozen retry identity before network, strips signatures, namespaces target/account',()=>{
  const store=storage();const row={...draft(),_key:'row',clientRequestId:'request',images:[{fileId:'id',url:'https://signed.example'}]}

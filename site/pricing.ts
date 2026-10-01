@@ -1,4 +1,4 @@
-import type { Locale } from "./site-content";
+import type { Locale } from "./content";
 export const MINI_PROGRAM_SHARE = "#小程序://极链行服务/VGD7QITnczTep0F";
 export const PRICE_AS_OF = "2026-09-10T21:31:52-04:00";
 export const PLACES = {

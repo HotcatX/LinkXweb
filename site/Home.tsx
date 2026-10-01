@@ -1,4 +1,3 @@
-"use client";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   COPY,
@@ -7,7 +6,7 @@ import {
   type Service,
   type Theme,
   miniProgramSteps,
-} from "./site-content";
+} from "./content";
 import {
   MINI_PROGRAM_SHARE,
   PLACES,

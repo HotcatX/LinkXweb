@@ -2,8 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { blankDraft, draftPayload, validateDraft, communityPayload, normalizeEditableCommunity, validateCommunity, datetimeInput } from '../src/model.js'
 import { createBatch, applyBatchResult, uncertainBatch } from '../src/batch.js'
-import { createApi, resolveEndpoint } from '../src/api.js'
-import { createCloudbaseTransport } from '../src/compat/cloudbase-transport.js'
+import { resolveEndpoint } from '../src/api.js'
 const goods = () => ({...blankDraft(), _key:'one', clientRequestId:'request-one', title:'Desk', price:'0', sellerName:'Cat', sellerWechat:'cat-test', regionState:'NJ', regionCounty:'Fort Lee', regionArea:'Fort Lee', images:[]})
 test('goods validation accepts free goods, rejects partial coordinates and backwards dates', () => {
  assert.equal(validateDraft(goods()), '')
@@ -41,43 +40,8 @@ test('community manual content works while auto display is off and dates preserv
  assert.match(validateCommunity({...c,group:{...c.group,expiresAt:'invalid'}}),/到期/)
  assert.equal(validateCommunity(normalizeEditableCommunity()),'')
 })
-const storage=()=>{ const values=new Map(); return {getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)} }
 test('API uses HTTPS and prevents embedded credentials',()=>{
- assert.equal(resolveEndpoint('/admin-api','https://example.com'),'https://example.com/admin-api')
+ assert.equal(resolveEndpoint('https://admin.linkx.ink','https://example.com'),'https://admin.linkx.ink/')
  assert.throws(()=>resolveEndpoint('http://example.com', 'https://example.com'))
  assert.throws(()=>resolveEndpoint('https://user:secret@example.com','https://example.com'))
-})
-test('login token stays in session storage, authenticated requests attach Bearer, expired response clears it',async()=>{
- const s=storage();const calls=[];let expired=0
- const api=createCloudbaseTransport({endpoint:'https://example.com/admin-api',storage:s,onUnauthorized:()=>expired++,fetcher:async(url,options)=>{
-  calls.push(options);const body=JSON.parse(options.body)
-  return {ok:body.action==='login',status:body.action==='login'?200:401,json:async()=>body.action==='login'?{ok:true,token:'a'.repeat(64),expiresAtMs:Date.now()+100000,admin:{username:'admin'}}:{ok:false,error:'session_invalid'}}
- }})
- await api.login('admin','test-password'); assert.equal(calls[0].headers.Authorization,undefined)
- await assert.rejects(api.call('bootstrap'),/登录已过期/)
- assert.match(calls[1].headers.Authorization,/^Bearer /);assert.equal(calls[1].credentials,'omit')
- assert.equal(api.getSession(),null);assert.equal(expired,1)
-})
-
-test('image uploads use binary transport while preserving original payload and authentication',async()=>{
- const calls=[]
- const api=createCloudbaseTransport({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async(url,options)=>{
-  calls.push(options)
-  const body=JSON.parse(typeof options.body==='string'?options.body:new TextDecoder().decode(options.body))
-  return {ok:true,status:200,json:async()=>body.action==='login'?{ok:true,token:'a'.repeat(64),expiresAtMs:Date.now()+100000}:{ok:true,fileID:'cloud://uploaded'}}
- }})
- await api.login('admin','test-password')
- const input={purpose:'community',filename:'群二维码.jpg',contentType:'image/jpeg',base64:'A'.repeat(150000)}
- await api.call('uploadImage',input)
- assert.equal(calls[0].headers['Content-Type'],'application/json')
- assert.equal(calls[1].headers['Content-Type'],'application/octet-stream')
- assert.ok(calls[1].body instanceof Uint8Array)
- assert.deepEqual(JSON.parse(new TextDecoder().decode(calls[1].body)),{...input,action:'uploadImage'})
- assert.match(calls[1].headers.Authorization,/^Bearer /)
- assert.equal(calls[1].credentials,'omit')
-})
-
-test('gateway payload failures identify upload size rather than website authorization',async()=>{
- const api=createCloudbaseTransport({endpoint:'https://example.com/admin-api',storage:storage(),fetcher:async()=>({ok:false,status:413,json:async()=>({code:'EXCEED_MAX_PAYLOAD_SIZE'})})})
- await assert.rejects(api.call('uploadImage',{}, {anonymous:true}),error=>error.code==='EXCEED_MAX_PAYLOAD_SIZE'&&/大小限制/.test(error.message))
 })
